@@ -1,0 +1,3783 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>森林冰火人 - 情侣双人版</title>
+<script src="https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js"></script>
+<style>
+  /* ========== 全局样式 ========== */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    user-select: none;
+  }
+
+  #gameWrapper {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background: #16213e;
+    border-radius: 0;
+    padding: 16px 24px 14px;
+    box-shadow: none;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #gameWrapper::before {
+    content: '';
+    position: absolute;
+    top: -2px; left: -2px;
+    width: calc(100% + 4px);
+    height: calc(100% + 4px);
+    border-radius: 18px;
+    background: linear-gradient(45deg, #ff6b9d, #ffb6c1, #e94560, #ff69b4, #ff6b9d);
+    background-size: 400% 400%;
+    animation: borderGlow 4s ease infinite;
+    z-index: -1;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  @keyframes borderGlow {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  /* ========== 顶部 HUD ========== */
+  #hud {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px 10px 4px;
+    color: #eee;
+    font-size: 14px;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  #hud .hud-item {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    padding: 6px 16px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    transition: background 0.3s, border-color 0.3s;
+  }
+  #hud .hud-item:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 105, 180, 0.25);
+  }
+  #hud .hud-item .label { color: #ccc; }
+  #hud .hud-item .value  { color: #fff; font-weight: bold; }
+  #hud .hud-item .value.hearts { color: #ff6b6b; }
+
+  /* ========== Canvas 容器 ========== */
+  #canvasWrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    border-radius: 10px;
+    min-height: 0;
+  }
+  #gameCanvas {
+    display: block;
+    background: #2d2d44;
+  }
+
+  /* ========== 覆盖层（关卡完成/游戏结束等） ========== */
+  #overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.72);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    color: #fff;
+    pointer-events: auto;
+    z-index: 10;
+  }
+  #overlay.show {
+    display: flex;
+    animation: overlayFadeIn 0.35s ease-out;
+  }
+  @keyframes overlayFadeIn {
+    from { opacity: 0; transform: scale(0.92); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  #overlay.win { background: rgba(40, 10, 25, 0.88); }
+  #overlay.win h1 {
+    background: linear-gradient(45deg, #ff6b9d, #ffb6c1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: none;
+  }
+  #overlay.win p { color: #ffaacc; }
+  #overlay h1 { font-size: 42px; margin-bottom: 8px; }
+  #overlay p  { font-size: 18px; color: #ccc; margin-bottom: 20px; }
+  #overlay .btn {
+    padding: 10px 36px;
+    font-size: 18px;
+    border: none;
+    border-radius: 30px;
+    background: #e94560;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  #overlay .btn:hover { background: #ff6b81; }
+  #overlay .btn.secondary { background: #555; }
+  #overlay .btn.secondary:hover { background: #777; }
+  #overlayBtnGroup { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; }
+
+  /* 告白情书 */
+  #loveLetterSection {
+    display: none; flex-direction: column; align-items: center; gap: 14px;
+    margin-top: 6px; width: 85%; max-width: 520px;
+    animation: loveLetterFadeIn 0.6s ease-out;
+  }
+  @keyframes loveLetterFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  #loveLetterSection.show { display: flex; }
+  #loveLetterSection .letter-label {
+    font-size: 13px; color: #ffaabb; letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(255,105,180,0.5);
+  }
+  #loveLetterSection textarea {
+    width: 100%; min-height: 90px; max-height: 140px; border-radius: 14px;
+    border: 2px solid rgba(233,69,96,0.5);
+    background: rgba(255,255,255,0.06); color: #ffd; font-size: 14px;
+    padding: 14px; resize: vertical; font-family: inherit; outline: none;
+    line-height: 1.6; transition: border-color 0.3s;
+  }
+  #loveLetterSection textarea:focus {
+    border-color: #ff6b81;
+    box-shadow: 0 0 20px rgba(233,69,96,0.2);
+  }
+  #loveLetterSection textarea::placeholder { color: #886666; }
+  #loveLetterDisplay {
+    display: none; flex-direction: column; align-items: center;
+    background: rgba(233,69,96,0.08); border: 2px solid rgba(233,69,96,0.35);
+    border-radius: 16px; padding: 18px 22px; max-height: 180px; overflow-y: auto;
+    color: #ffd; font-size: 15px; line-height: 1.8; text-align: center;
+    white-space: pre-wrap; width: 100%;
+    box-shadow: inset 0 0 30px rgba(233,69,96,0.05);
+  }
+  #loveLetterDisplay.show { display: flex; }
+  #loveLetterDisplay .letter-header {
+    font-size: 20px; margin-bottom: 6px;
+  }
+
+  /* ========== 底部控制区 ========== */
+  #bottomBar {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 10px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  #bottomBar .hint {
+    color: #ff6b9d;
+    font-size: 14px;
+  }
+  .photo-group {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .photo-btn {
+    padding: 7px 18px;
+    border: 2px solid #e94560;
+    border-radius: 25px;
+    background: transparent;
+    color: #e94560;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .photo-btn:hover {
+    background: #e94560;
+    color: #fff;
+  }
+
+  .name-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    justify-content: center;
+  }
+  .name-label {
+    color: #ff6b9d;
+    font-size: 13px;
+  }
+  .name-input {
+    width: 50px;
+    padding: 4px 8px;
+    border: 2px solid #e94560;
+    border-radius: 15px;
+    background: transparent;
+    color: #fff;
+    font-size: 13px;
+    text-align: center;
+    outline: none;
+  }
+  .name-input:focus {
+    border-color: #ff69b4;
+    background: rgba(255,105,180,0.1);
+  }
+
+  /* ========== 操作提示 ========== */
+  #controlsHint {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    padding-top: 10px;
+    color: #888;
+    font-size: 13px;
+  }
+  #controlsHint span b { color: #bbb; }
+  #controlsHint .boy-color { color: #ff6b35; }
+  #controlsHint .girl-color { color: #4ecdc4; }
+
+  /* ========== 手机触控按钮 ========== */
+  #touchControls {
+    flex-shrink: 0;
+    display: none;
+    justify-content: space-between;
+    padding: 10px 6px 4px;
+    gap: 10px;
+  }
+  .touch-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .touch-group .group-label {
+    color: #666;
+    font-size: 11px;
+    margin-bottom: 2px;
+    letter-spacing: 1px;
+  }
+  .touch-row {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+  }
+  .touch-btn {
+    width: 52px;
+    height: 52px;
+    border: none;
+    border-radius: 14px;
+    font-size: 22px;
+    cursor: pointer;
+    touch-action: none;
+    -webkit-touch-callout: none;
+    transition: transform 0.05s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .touch-btn:active,
+  .touch-btn.active {
+    transform: scale(0.90);
+  }
+  .touch-btn.boy {
+    background: rgba(255, 107, 53, 0.2);
+    color: #ff6b35;
+    border: 2px solid rgba(255, 107, 53, 0.35);
+  }
+  .touch-btn.boy.active,
+  .touch-btn.boy:active {
+    background: rgba(255, 107, 53, 0.4);
+  }
+  .touch-btn.girl {
+    background: rgba(78, 205, 196, 0.2);
+    color: #4ecdc4;
+    border: 2px solid rgba(78, 205, 196, 0.35);
+  }
+  .touch-btn.girl.active,
+  .touch-btn.girl:active {
+    background: rgba(78, 205, 196, 0.4);
+  }
+  .touch-btn.kiss-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(255, 105, 180, 0.2);
+    color: #ff69b4;
+    border: 2px solid rgba(255, 105, 180, 0.35);
+    font-size: 20px;
+    align-self: center;
+  }
+  .touch-btn.kiss-btn.active,
+  .touch-btn.kiss-btn:active {
+    background: rgba(255, 105, 180, 0.45);
+  }
+  .touch-spacer {
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+  }
+
+  @media (max-width: 860px), (pointer: coarse) {
+    #touchControls { display: flex; flex-wrap: wrap; justify-content: center; }
+  }
+
+  /* ========== 520开场专属弹窗 ========== */
+  #welcomeModal {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.65); backdrop-filter: blur(6px);
+    display: none; justify-content: center; align-items: center;
+    z-index: 9999; animation: welcomeFadeIn 0.8s ease-out;
+  }
+  #welcomeModal.show { display: flex; }
+  @keyframes welcomeFadeIn {
+    from { opacity: 0; } to { opacity: 1; }
+  }
+  #welcomeModal .modal-box {
+    background: linear-gradient(145deg, #1a0a20, #2d1535, #1a0a20);
+    border: 2px solid rgba(255,105,180,0.4);
+    border-radius: 24px; padding: 40px 48px;
+    max-width: 520px; width: 90%; text-align: center;
+    box-shadow: 0 0 80px rgba(255,105,180,0.2), 0 20px 60px rgba(0,0,0,0.5);
+    animation: modalPop 0.5s ease-out 0.2s both;
+    position: relative; overflow: hidden;
+  }
+  #welcomeModal .modal-box::before {
+    content: ''; position: absolute; top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: conic-gradient(from 0deg, transparent, rgba(255,105,180,0.05), transparent, rgba(255,50,100,0.05), transparent);
+    animation: modalGlow 6s linear infinite;
+  }
+  @keyframes modalGlow { to { transform: rotate(360deg); } }
+  @keyframes modalPop {
+    from { transform: scale(0.6) translateY(40px); opacity: 0; }
+    to   { transform: scale(1) translateY(0); opacity: 1; }
+  }
+  #welcomeModal .modal-hearts {
+    font-size: 48px; margin-bottom: 8px;
+    animation: heartBeat 1.2s ease-in-out infinite;
+    position: relative; z-index: 1;
+  }
+  @keyframes heartBeat {
+    0%, 100% { transform: scale(1); }
+    15% { transform: scale(1.2); }
+    30% { transform: scale(1); }
+    45% { transform: scale(1.15); }
+    60% { transform: scale(1); }
+  }
+  #welcomeModal .modal-title {
+    font-size: 32px; font-weight: 800;
+    background: linear-gradient(135deg, #ff6b9d, #ffb6c1, #ff69b4);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin: 10px 0 8px;
+    position: relative; z-index: 1;
+  }
+  #welcomeModal .modal-sub {
+    font-size: 18px; color: #ffaacc; margin: 4px 0 16px; line-height: 1.6;
+    position: relative; z-index: 1;
+  }
+  #welcomeModal .modal-sub .highlight { color: #ffd700; font-weight: bold; }
+  #welcomeModal .modal-btn {
+    padding: 12px 48px; font-size: 18px; font-weight: 700;
+    border: none; border-radius: 50px;
+    background: linear-gradient(135deg, #e94560, #ff6b81);
+    color: #fff; cursor: pointer; position: relative; z-index: 1;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 25px rgba(233,69,96,0.4);
+  }
+  #welcomeModal .modal-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 35px rgba(233,69,96,0.6);
+  }
+  #welcomeModal .modal-btn:active { transform: translateY(0); }
+  #welcomeModal .modal-decoration {
+    position: absolute; font-size: 24px; opacity: 0.15; z-index: 0;
+    animation: floatDeco 3s ease-in-out infinite;
+  }
+  @keyframes floatDeco {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-10px) rotate(10deg); }
+  }
+  @media (max-width: 520px) {
+    #welcomeModal .modal-box { padding: 28px 20px; }
+    #welcomeModal .modal-title { font-size: 24px; }
+    #welcomeModal .modal-sub { font-size: 15px; }
+    #welcomeModal .modal-hearts { font-size: 36px; }
+  }
+
+  /* ========== 联机模式面板 ========== */
+  #onlinePanel {
+    display: none; position: fixed; inset: 0; z-index: 9999;
+    background: rgba(10,8,30,0.85); backdrop-filter: blur(6px);
+    justify-content: center; align-items: center;
+  }
+  #onlinePanel.show { display: flex; }
+  #onlinePanel .panel-box {
+    background: linear-gradient(145deg, #1a1040, #2a1850);
+    border: 1px solid rgba(255,105,180,0.3);
+    border-radius: 20px; padding: 30px 36px; max-width: 380px; width: 90%;
+    position: relative; box-shadow: 0 8px 60px rgba(255,50,100,0.2);
+    text-align: center;
+  }
+  #onlinePanel .panel-close {
+    position: absolute; top: 8px; right: 14px;
+    background: none; border: none; color: #8877aa; font-size: 28px;
+    cursor: pointer; padding: 0; line-height: 1;
+  }
+  #onlinePanel .panel-close:hover { color: #ff6b9d; }
+  #onlinePanel .panel-title { font-size: 22px; font-weight: 700; color: #ffb6c1; margin-bottom: 20px; }
+  #onlinePanel .panel-title span { background: linear-gradient(135deg, #ff69b4, #ffb6c1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  #onlinePanel .panel-btn {
+    display: inline-block; padding: 12px 32px; border-radius: 12px;
+    border: 1px solid rgba(255,105,180,0.4); font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: all .2s;
+    background: linear-gradient(145deg, #e94560, #c73a52); color: #fff;
+    box-shadow: 0 4px 20px rgba(233,69,96,0.3);
+  }
+  #onlinePanel .panel-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 30px rgba(233,69,96,0.5); }
+  #onlinePanel .panel-btn.sec { background: linear-gradient(145deg, #4a2a8a, #3a1a6a); border-color: #7a5aaa; }
+  #onlinePanel .panel-btn.sec:hover { background: linear-gradient(145deg, #5a3a9a, #4a2a7a); }
+  #onlinePanel .panel-btn.sm { padding: 8px 20px; font-size: 13px; }
+  #onlinePanel .divider { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 16px 0; }
+  #onlinePanel .status-text { font-size: 14px; color: #b8a8d8; margin-bottom: 12px; }
+  #onlinePanel .room-code {
+    font-size: 42px; font-weight: 800; letter-spacing: 6px;
+    color: #ffd700; text-shadow: 0 0 30px rgba(255,215,0,0.4);
+    margin: 12px 0; font-family: 'Courier New', monospace;
+  }
+  #onlinePanel .room-input {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px; padding: 10px 16px; font-size: 20px;
+    color: #fff; text-align: center; width: 130px; letter-spacing: 3px;
+    font-family: 'Courier New', monospace; text-transform: uppercase;
+    outline: none; transition: border-color 0.2s;
+  }
+  #onlinePanel .room-input:focus { border-color: #ff69b4; }
+  #onlinePanel .room-input::placeholder { font-size: 14px; letter-spacing: 1px; }
+  #onlinePanel .connected { color: #70ffb0; font-weight: 600; }
+  #onlinePanel .info-line { font-size: 14px; color: #d0c0e8; margin: 6px 0; }
+  #onlinePanel .info-line .boy-c { color: #ff6b45; font-weight: 600; }
+  #onlinePanel .info-line .girl-c { color: #40c8ff; font-weight: 600; }
+
+  /* ========== 响应式 ========== */
+  @media (max-width: 860px) {
+    #gameWrapper { padding: 10px 8px; }
+    #hud { font-size: 12px; }
+    #hud .hud-item { padding: 3px 10px; }
+    .photo-btn { font-size: 11px; padding: 4px 10px; }
+    .name-input { width: 40px; font-size: 11px; padding: 3px 6px; }
+    .name-group { gap: 4px; font-size: 11px; }
+    .name-label { font-size: 11px; }
+    #controlsHint { font-size: 11px; gap: 12px; flex-wrap: wrap; }
+    #bottomBar { justify-content: center; }
+    #bottomBar .hint { font-size: 12px; text-align: center; width: 100%; }
+    .touch-btn { width: 46px; height: 46px; font-size: 18px; }
+    .touch-btn.kiss-btn { width: 42px; height: 42px; font-size: 16px; }
+  }
+  @media (max-width: 480px) {
+    #gameWrapper { padding: 6px 4px; }
+    #hud { font-size: 10px; gap: 2px; padding: 0 2px 6px 2px; }
+    #hud .hud-item { padding: 2px 8px; border-radius: 14px; }
+    #bottomBar { padding-top: 6px; }
+    .touch-btn { width: 40px; height: 40px; font-size: 16px; }
+    .touch-btn.kiss-btn { width: 38px; height: 38px; font-size: 14px; }
+    #controlsHint { font-size: 10px; gap: 6px; }
+    #controlsHint span { display: block; }
+    .photo-btn { font-size: 10px; padding: 3px 8px; }
+    .name-input { width: 34px; font-size: 10px; padding: 2px 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="gameWrapper">
+  <!-- ===== HUD ===== -->
+  <div id="hud">
+    <div class="hud-item"><span class="label">关卡</span><span class="value" id="levelDisplay">1</span></div>
+    <div class="hud-item"><span class="label">❤️ 碎片</span><span class="value" id="fragDisplay">0 / 2</span></div>
+    <div class="hud-item"><span class="label">生命</span><span class="value hearts" id="lifeDisplay">❤️❤️❤️</span></div>
+    <div class="hud-item"><span class="label">状态</span><span class="value" id="statusDisplay">▶ 游戏中</span></div>
+    <div class="hud-item" id="musicStatus" style="cursor:pointer" title="点击播放/暂停"><span class="label">音乐</span><span class="value" id="musicIcon">⚪</span></div>
+    <button id="homeBtn" style="background:#e94560;border:none;border-radius:20px;color:#fff;cursor:pointer;padding:6px 14px;font-size:13px;white-space:nowrap">🏠 主页</button>
+  </div>
+
+  <!-- ===== Canvas ===== -->
+  <div id="canvasWrap">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="overlay">
+      <h1 id="overlayTitle">闯关成功！</h1>
+      <p id="overlayDesc">你们配合得真棒！</p>
+      <div id="loveLetterSection">
+        <div class="letter-label">💕 写下你想对 TA 说的情话 💕</div>
+        <textarea id="loveLetterInput" placeholder="✍️ 亲爱的，我有好多话想对你说..." maxlength="500"></textarea>
+        <button class="btn" id="loveLetterSendBtn" style="font-size:15px;padding:8px 32px">💌 把爱意存进心里</button>
+        <div id="loveLetterDisplay"><div class="letter-header">💖</div></div>
+      </div>
+      <div id="overlayBtnGroup">
+        <button class="btn" id="overlayBtn">下一关</button>
+        <button class="btn secondary" id="overlayBackBtn" style="display:none">🏠 关卡选择</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 开场专属弹窗 ===== -->
+  <div id="welcomeModal">
+    <div class="modal-box">
+      <div class="modal-decoration" style="top:10px;left:15px">🌹</div>
+      <div class="modal-decoration" style="bottom:10px;right:15px;animation-delay:1s">💍</div>
+      <div class="modal-decoration" style="top:50%;right:20px;animation-delay:0.5s">✨</div>
+      <div class="modal-decoration" style="bottom:30%;left:15px;animation-delay:1.5s">🌟</div>
+      <div class="modal-hearts">💖</div>
+      <div class="modal-title" id="welcomeTitle">520快乐！</div>
+      <div class="modal-sub" id="welcomeSub">这是为 <span class="highlight" id="welcomeNames">男 & 女</span> 定制的专属世界</div>
+      <div class="modal-sub" style="font-size:14px;color:#cc88aa;margin-top:-10px" id="welcomeTagline">愿你们的爱，如冰火交织，永恒不灭 💕</div>
+      <button class="modal-btn" id="welcomeBtn">💑 开始我们的旅程</button>
+    </div>
+  </div>
+
+  <!-- ===== 操作提示 ===== -->
+  <div id="controlsHint">
+    <span>🔥 <span class="boy-color"><b>W A S D</b></span> 控制男友</span>
+    <span>💧 <span class="girl-color"><b>↑ ← ↓ →</b></span> 控制女友</span>
+    <span>🤝 <b>空格</b> 牵手/松开</span>
+    <span>💋 <b>K</b> 亲吻（相邻时）</span>
+	    <span>📸 <b>P</b> 合照（相邻时）</span>
+  </div>
+
+  <!-- ===== 底部 ===== -->
+  <div id="bottomBar">
+    <div class="hint">点击上传你们的自拍、音乐和合照，打造专属回忆 ❤️</div>
+    <div class="photo-group">
+      <button class="photo-btn" id="uploadBoy">📷 更换男友照片</button>
+      <button class="photo-btn" id="uploadGirl">📷 更换女友照片</button>
+	      <button class="photo-btn" id="uploadMusic">🎵 上传背景音乐</button>
+	      <button class="photo-btn" id="uploadCouple">📸 上传合照</button>
+      <button class="photo-btn" id="onlineToggleBtn" style="border-color:#ff69b4;color:#ff69b4">💑 联机模式</button>
+    </div>
+    <div class="name-group">
+      <span class="name-label">🔥 男友：</span>
+      <input class="name-input" id="boyNameInput" maxlength="8" placeholder="男">
+      <span class="name-label" style="margin-left:10px">💧 女友：</span>
+      <input class="name-input" id="girlNameInput" maxlength="8" placeholder="女">
+      <button class="photo-btn" id="saveNameBtn" style="padding:4px 12px;font-size:12px">✅ 保存</button>
+    </div>
+  </div>
+
+  <!-- ===== 手机触控按钮 ===== -->
+  <div id="touchControls">
+    <!-- 男友控制区（左） -->
+    <div class="touch-group">
+      <div class="group-label">🔥 男友</div>
+      <div class="touch-row">
+        <div class="touch-btn boy" data-key="w">▲</div>
+      </div>
+      <div class="touch-row">
+        <div class="touch-btn boy" data-key="a">◀</div>
+        <div class="touch-btn boy" data-key="s">▼</div>
+        <div class="touch-btn boy" data-key="d">▶</div>
+      </div>
+    </div>
+
+    <!-- 亲吻 & 合照按钮（中） -->
+    <div class="touch-spacer" style="flex-direction:column;gap:6px">
+      <div class="touch-btn kiss-btn" id="touchKiss">💋</div>
+      <div class="touch-btn kiss-btn" id="touchPhoto" style="width:42px;height:42px;font-size:18px">📸</div>
+    </div>
+
+    <!-- 女友控制区（右） -->
+    <div class="touch-group">
+      <div class="group-label">💧 女友</div>
+      <div class="touch-row">
+        <div class="touch-btn girl" data-key="up">▲</div>
+      </div>
+      <div class="touch-row">
+        <div class="touch-btn girl" data-key="left">◀</div>
+        <div class="touch-btn girl" data-key="down">▼</div>
+        <div class="touch-btn girl" data-key="right">▶</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- ===== 联机模式面板 ===== -->
+<div id="onlinePanel">
+  <div class="panel-box">
+    <button class="panel-close" id="onlineCloseBtn">&times;</button>
+    <div class="panel-title">💑 <span>异地联机</span></div>
+
+    <!-- 未连接时：简单输入房间号 -->
+    <div id="onlineDisconnected">
+      <div class="status-text" style="color:#aaa">两人输入相同的房间号即可联机</div>
+      <div class="status-text" id="onlineErrorText" style="color:#ff6b6b;font-size:13px;display:none;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <input class="room-input" id="onlineCodeInput" placeholder="输入房间号" maxlength="6" autofocus>
+        <button class="panel-btn" id="onlineConnectBtn">🔗 联机</button>
+      </div>
+    </div>
+
+    <!-- 连接中 / 等待中 -->
+    <div id="onlineWaiting" style="display:none">
+      <div class="status-text" id="onlineStatusText">⏳ 连接中...</div>
+      <div style="margin-top:8px">
+        <div class="status-text" style="color:#888">对方输入相同房间号即可自动配对</div>
+        <div class="room-code" id="onlineRoomCodeDisplay" style="font-size:32px">------</div>
+      </div>
+      <button class="panel-btn sec sm" id="onlineCancelBtn">取消</button>
+    </div>
+
+    <!-- 已连接 -->
+    <div id="onlineConnected" style="display:none">
+      <div class="status-text"><span class="connected">✅ 已连接</span> · 房间 <span id="onlineConnectedCode" style="color:#ff69b4;font-weight:bold"></span></div>
+      <hr class="divider">
+      <div class="info-line" id="onlineHostInfo" style="display:none">🔥 你控制 <span class="boy-c">男友</span>（WASD）</div>
+      <div class="info-line" id="onlineJoinerInfo" style="display:none">💧 你控制 <span class="girl-c">女友</span>（方向键）</div>
+      <div class="info-line" style="color:#888;font-size:12px;margin-top:5px">对方控制另一个角色，游戏画面同步</div>
+      <button class="panel-btn sec sm" id="onlineDisconnectBtn">断开</button>
+    </div>
+  </div>
+</div>
+  </div>
+</div>
+
+<script>
+// ================================================================
+//  森林冰火人 · 情侣双人版  —— 完整游戏代码
+//  技术栈：纯 Canvas + JavaScript ES6，无任何外部依赖
+//  照片上传使用 FileReader + localStorage 持久化
+// ================================================================
+
+// ==================== 常量定义 ====================
+var TILE      = 40;          // 每个格子的像素大小
+var COLS      = 20;          // 地图列数
+var ROWS      = 15;          // 地图行数
+var CANVAS_W  = COLS * TILE; // 800
+var CANVAS_H  = ROWS * TILE; // 600
+
+// ---------- 地图瓦片类型 ----------
+var T = {
+  FLOOR : 0,  // 普通地面（双方可行走）
+  WALL  : 1,  // 墙壁（双方不可行走）
+  LAVA  : 2,  // 岩浆（火男孩安全 / 水女孩死亡）
+  POISON: 3,  // 毒水（水女孩安全 / 火男孩死亡）
+  FBEG  : 4,  // 火男孩出生点
+  WBEG  : 5,  // 水女孩出生点
+  FEXIT : 6,  // 火男孩出口
+  WEXIT : 7,  // 水女孩出口
+  HEART : 8,  // 爱心碎片（收集品）
+  GATE  : 9,  // 锁住的门（收集足够碎片后变为地板）
+  LOVE  : 10, // 情书（收集后显示浪漫消息 💌）
+  HGATE : 11, // 牵手门（收集足够碎片 + 牵手才打开）
+  KGATE : 12, // 亲吻门（在门旁亲吻时短暂打开）
+};
+
+// ================================================================
+//  ★ 情侣定制配置 ★
+//  【自定义指南】直接修改下方变量即可定制专属内容：
+//   - boyNickname / girlNickname：客户昵称
+//   - openingTitle / openingMessage / openingTagline：开场弹窗文案
+//  这些值可从 localStorage 读取（由客户信息模板设置），
+//  也可在游戏内通过开发者控制台修改。
+// ================================================================
+var COUPLE_CONFIG = {
+  boyNickname:    '男',            // ← 修改为客户的男友昵称
+  girlNickname:   '女',            // ← 修改为客户的女友昵称
+  openingTitle:   '520快乐！',       // ← 开场弹窗标题
+  openingMessage: '这是为 男 & 女 定制的专属世界',  // ← 开场文案
+  openingTagline: '愿你们的爱，如冰火交织，永恒不灭 💕', // ← 副标题
+};
+// 从 localStorage 读取自定义昵称（客户端设置后自动生效）
+try {
+  if (localStorage.getItem('couple_boyNick'))  COUPLE_CONFIG.boyNickname  = localStorage.getItem('couple_boyNick');
+  if (localStorage.getItem('couple_girlNick')) COUPLE_CONFIG.girlNickname = localStorage.getItem('couple_girlNick');
+  if (localStorage.getItem('couple_title'))    COUPLE_CONFIG.openingTitle = localStorage.getItem('couple_title');
+  if (localStorage.getItem('couple_message'))  COUPLE_CONFIG.openingMessage = localStorage.getItem('couple_message');
+  if (localStorage.getItem('couple_tagline'))  COUPLE_CONFIG.openingTagline = localStorage.getItem('couple_tagline');
+} catch (e) { /* localStorage 不可用时忽略 */ }
+
+// 声明开场弹窗已显示标记
+// 开场弹窗用 localStorage 控制（只显示一次）
+
+// ================================================================
+//  ★ 联机模式（异地同屏）- PeerJS WebRTC
+//  原理：Host 运行权威游戏逻辑，Joiner 仅发送输入并渲染状态快照
+//  使用 PeerJS 免费信令服务器建立 WebRTC DataChannel
+// ================================================================
+
+// 显示联机状态信息（在联机面板 + 控制台 + HUD 同时显示）
+function setOnlineStatus(msg, isError) {
+  var el = document.getElementById('onlineStatusText');
+  if (el) el.textContent = msg;
+  // 同时显示在 disconnected 面板的错误区域（让用户一定能看到）
+  var errEl = document.getElementById('onlineErrorText');
+  if (errEl) {
+    errEl.textContent = msg;
+    errEl.style.display = isError ? 'block' : 'none';
+  }
+  if (isError) console.error('[联机]', msg);
+  else console.log('[联机]', msg);
+  setStatus(msg);
+}
+
+var ONLINE = {
+  client: null,         // MQTT 客户端
+  isHost: false,
+  isJoiner: false,
+  roomCode: '',
+  connected: false,
+  connecting: false,
+  available: false,
+  clientId: '',
+  remoteKeys: {},      // Host 用：接收 Joiner 的方向键状态
+  remoteState: null,   // Joiner 用：接收 Host 的游戏状态
+  syncTimer: null,
+  decideTimer: null,
+  _initDone: false,
+  _waitingForJoiner: false,
+
+  /** 初始化 */
+  init: function() {
+    if (typeof mqtt === 'undefined') {
+      console.warn('[联机] MQTT 库未加载');
+      setOnlineStatus('⚠️ 加载失败，请刷新页面', true);
+      return;
+    }
+    ONLINE.available = true;
+    ONLINE._initDone = true;
+    console.log('[联机] MQTT 库已就绪');
+    setOnlineStatus('✅ 联机服务已就绪');
+  },
+
+  /** 联机入口：双方输入相同房间号 */
+  connect: function(code) {
+    if (ONLINE.connecting || ONLINE.connected) return;
+    code = code.toUpperCase().trim();
+    if (code.length < 4) { setOnlineStatus('⚠️ 请输入 4~6 位房间号', true); return; }
+    if (!ONLINE.available) { setOnlineStatus('⚠️ 加载失败，请刷新页面', true); return; }
+
+    ONLINE.connecting = true;
+    ONLINE.connected = false;
+    ONLINE.isHost = false;
+    ONLINE.isJoiner = false;
+    ONLINE.roomCode = code;
+    ONLINE.clientId = 'bh_' + code + '_' + Math.random().toString(36).substr(2, 8);
+    ONLINE._waitingForJoiner = false;
+
+    // 切换到等待界面
+    document.getElementById('onlineDisconnected').style.display = 'none';
+    document.getElementById('onlineWaiting').style.display = 'block';
+    document.getElementById('onlineConnected').style.display = 'none';
+    document.getElementById('onlineRoomCodeDisplay').textContent = code;
+    setOnlineStatus('⏳ 正在连接...');
+
+    var topic = 'bh/' + code;
+
+    // 连接到公共 MQTT 代理（EMQX 公共 Broker）
+    try {
+      ONLINE.client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+        clientId: ONLINE.clientId,
+        clean: true,
+        reconnectPeriod: 0,
+        connectTimeout: 10000,
+      });
+    } catch(e) {
+      setOnlineStatus('⚠️ 连接失败: ' + e.message, true);
+      ONLINE.connecting = false;
+      return;
+    }
+
+    ONLINE.client.on('connect', function() {
+      console.log('[联机] MQTT 已连接, 房间:', code);
+      ONLINE.client.subscribe(topic, { qos: 0 }, function(err) {
+        if (err) {
+          setOnlineStatus('⚠️ 订阅失败: ' + err.message, true);
+          return;
+        }
+        setOnlineStatus('⏳ 等待配对...');
+        // 立即发送问候消息让对方感知
+        ONLINE._sendHello();
+        // 4 秒后备：超时后自动成为主机
+        ONLINE.decideTimer = setTimeout(function() { ONLINE.decideRole(); }, 4000);
+      });
+    });
+
+    // 处理收到的消息
+    ONLINE.client.on('message', function(t, msg) {
+      if (t !== topic) return;
+      try { var data = JSON.parse(msg.toString()); } catch(e) { return; }
+      // 过滤自己发出去的消息（兼容 id / clientId 两种字段）
+      if (data.id === ONLINE.clientId || data.clientId === ONLINE.clientId) return;
+
+      // ★ 首次收到对方消息 → 用 clientId 确定角色（确定性，无竞争）
+      if (!ONLINE.connected && data.clientId) {
+        clearTimeout(ONLINE.decideTimer);
+        if (data.clientId < ONLINE.clientId) {
+          ONLINE.becomeJoiner();
+        } else if (!ONLINE.isHost) {
+          ONLINE.decideRole();
+        }
+      }
+
+      // 自己是主机但收到别人的 state → 冲突检测
+      if (data.type === 'state' && ONLINE.isHost) {
+        if (data.clientId && data.clientId < ONLINE.clientId) {
+          console.log('[联机] 主机冲突，降级为加入方');
+          ONLINE.isHost = false;
+          ONLINE.isJoiner = true;
+          document.getElementById('onlineHostInfo').style.display = 'none';
+          document.getElementById('onlineJoinerInfo').style.display = 'block';
+          if (!ONLINE._waitingForJoiner) {
+            setOnlineStatus('✅ 配对成功！方向键控制女友 💧');
+          }
+        }
+      }
+      // 接收状态
+      if (data.type === 'state' && !ONLINE.isHost) {
+        if (!ONLINE.isJoiner && !ONLINE._waitingForJoiner) {
+          clearTimeout(ONLINE.decideTimer);
+          ONLINE.becomeJoiner();
+        }
+        ONLINE.remoteState = data.state;
+      }
+      // 主机收到 input → 对方已加入
+      if (data.type === 'input' && ONLINE.isHost) {
+        ONLINE.remoteKeys = data.keys || {};
+        if (ONLINE._waitingForJoiner) {
+          ONLINE._waitingForJoiner = false;
+          setOnlineStatus('✅ 配对成功！选择关卡开始游戏');
+        }
+      }
+      // 加入方收到命令 / 媒体数据
+      if (data.type === 'command' && ONLINE.isJoiner) {
+        if (data.command === 'loadLevel') {
+          state.lives = 3; loadLevel(data.level);
+        } else if (data.command === 'showLevelSelect') {
+          showLevelSelect();
+        } else if (data.command === 'restartGame') {
+          state.lives = 3; loadLevel(state.level);
+        }
+      }
+      // 加入方收到媒体同步（照片/音乐）
+      if (data.type === 'media' && ONLINE.isJoiner) {
+        var key = data.mediaKey;
+        var val = data.data;
+        if (key === 'bg_music') {
+          DB.set(key, val).then(function () { loadMusic(); });
+        } else if (key === 'photo_boy' || key === 'photo_girl') {
+          DB.set(key, val).then(function () {
+            var g = key === 'photo_boy' ? 'boy' : 'girl';
+            loadPhoto(g);
+          });
+        } else if (key === 'couple_photo') {
+          DB.set(key, val).then(function () { loadCouplePhoto(); });
+        }
+      }
+    });
+
+    ONLINE.client.on('error', function(err) {
+      console.error('[联机] MQTT 错误:', err.message);
+      if (ONLINE.connecting) {
+        setOnlineStatus('⚠️ 连接失败: ' + err.message, true);
+        ONLINE.connecting = false;
+        ONLINE.leaveRoom();
+      }
+    });
+
+    ONLINE.client.on('close', function() {
+      if (ONLINE.connected || ONLINE.connecting) {
+        ONLINE.handleDisconnect();
+      }
+    });
+
+    // 10 秒超时
+    setTimeout(function() {
+      if (ONLINE.connecting && !ONLINE.connected) {
+        setOnlineStatus('⏰ 连接超时，请检查网络后重试', true);
+        ONLINE.connecting = false;
+        ONLINE.leaveRoom();
+      }
+    }, 10000);
+  },
+
+  /** 2 秒后决定角色 */
+  decideRole: function() {
+    if (ONLINE.isHost || ONLINE.isJoiner || !ONLINE.connecting) return;
+    console.log('[联机] 成为主机');
+    ONLINE.isHost = true;
+    ONLINE.connected = true;
+    ONLINE.connecting = false;
+    ONLINE._waitingForJoiner = true;
+    ONLINE.hideWaitingUI();
+    ONLINE.showConnectedUI();
+    setOnlineStatus('💑 房间已创建，等 TA 输入相同房间号配对');
+  },
+
+  /** 成为加入方 */
+  becomeJoiner: function() {
+    if (ONLINE.isJoiner) return;
+    console.log('[联机] 成为加入方');
+    ONLINE.isJoiner = true;
+    ONLINE.isHost = false;
+    ONLINE.connected = true;
+    ONLINE.connecting = false;
+    ONLINE.hideWaitingUI();
+    ONLINE.showConnectedUI();
+    setOnlineStatus('✅ 配对成功！方向键控制女友 💧');
+  },
+
+  hideWaitingUI: function() {
+    document.getElementById('onlineWaiting').style.display = 'none';
+  },
+
+  /** Host：发送状态快照给 Joiner */
+  syncState: function() {
+    if (!ONLINE.connected || !ONLINE.client || !ONLINE.client.connected || !ONLINE.isHost) return;
+    try {
+      var s = {
+        boy: { x: state.boy.x, y: state.boy.y, dir: state.boy.dir },
+        girl: { x: state.girl.x, y: state.girl.y, dir: state.girl.dir },
+        frags: state.frags, lives: state.lives, phase: state.phase,
+        holding: state.holding, kissTimer: state.kissTimer,
+        flash: state.flash, level: state.level,
+        loveMessage: state.loveMessage, loveMessageTimer: state.loveMessageTimer,
+        couplePhotoMode: state.couplePhotoMode, couplePhotoTimer: state.couplePhotoTimer,
+        kissGateTimer: state.kissGateTimer, kissGateOpen: state.kissGateOpen,
+        map: state.map,
+        hearts: state.hearts.slice(0, 40),
+        confetti: state.confetti.slice(0, 40),
+      };
+      ONLINE.client.publish('bh/' + ONLINE.roomCode, JSON.stringify({ type: 'state', state: s, clientId: ONLINE.clientId }), { qos: 0 });
+    } catch(e) {}
+  },
+
+  /** Joiner：发送方向键状态给 Host */
+  sendInput: function() {
+    if (!ONLINE.connected || !ONLINE.client || !ONLINE.client.connected || !ONLINE.isJoiner) return;
+    try {
+      // 同时读取键盘和触控，移动端触控必定生效
+      var k = {
+        ArrowUp: keys.has('ArrowUp') || touchKeys.up,
+        ArrowDown: keys.has('ArrowDown') || touchKeys.down,
+        ArrowLeft: keys.has('ArrowLeft') || touchKeys.left,
+        ArrowRight: keys.has('ArrowRight') || touchKeys.right,
+      };
+      ONLINE.client.publish('bh/' + ONLINE.roomCode, JSON.stringify({ type: 'input', keys: k, id: ONLINE.clientId, clientId: ONLINE.clientId }), { qos: 0 });
+    } catch(e) {}
+  },
+
+  /** 发送加入问候，让对方感知我的存在 */
+  _sendHello: function() {
+    if (!ONLINE.client || !ONLINE.client.connected) return;
+    try {
+      ONLINE.client.publish('bh/' + ONLINE.roomCode, JSON.stringify({ type: 'hello', clientId: ONLINE.clientId }), { qos: 0 });
+      setTimeout(function() {
+        if (!ONLINE.connected && ONLINE.client && ONLINE.client.connected) {
+          ONLINE.client.publish('bh/' + ONLINE.roomCode, JSON.stringify({ type: 'hello', clientId: ONLINE.clientId }), { qos: 0 });
+        }
+      }, 500);
+    } catch(e) {}
+  },
+
+  /** Host：发送命令给 Joiner */
+  sendCommand: function(cmd, data) {
+    if (!ONLINE.connected || !ONLINE.client || !ONLINE.client.connected || !ONLINE.isHost) return;
+    data = data || {};
+    data.type = 'command'; data.command = cmd;
+    try { ONLINE.client.publish('bh/' + ONLINE.roomCode, JSON.stringify(data), { qos: 0 }); } catch(e) {}
+  },
+
+  /** Host：发送媒体数据给 Joiner */
+  sendMedia: function(mediaKey, data) {
+    if (!ONLINE.connected || !ONLINE.client || !ONLINE.client.connected || !ONLINE.isHost) return;
+    try {
+      ONLINE.client.publish('bh/' + ONLINE.roomCode, JSON.stringify({ type: 'media', mediaKey: mediaKey, data: data }), { qos: 0 });
+    } catch(e) {}
+  },
+
+  showConnectedUI: function() {
+    document.getElementById('onlineConnected').style.display = 'block';
+    document.getElementById('onlineConnectedCode').textContent = ONLINE.roomCode;
+    document.getElementById('onlineHostInfo').style.display = ONLINE.isHost ? 'block' : 'none';
+    document.getElementById('onlineJoinerInfo').style.display = ONLINE.isJoiner ? 'block' : 'none';
+    if (ONLINE.isHost) ONLINE.startSync();
+  },
+
+  startSync: function() {
+    ONLINE.stopSync();
+    if (ONLINE.isHost) ONLINE.syncTimer = setInterval(ONLINE.syncState, 50);
+  },
+  stopSync: function() {
+    if (ONLINE.syncTimer) { clearInterval(ONLINE.syncTimer); ONLINE.syncTimer = null; }
+  },
+
+  handleDisconnect: function() {
+    if (!ONLINE.connected && !ONLINE.connecting) return;
+    ONLINE.connected = false; ONLINE.isHost = false; ONLINE.isJoiner = false; ONLINE.connecting = false;
+    ONLINE.remoteKeys = {}; ONLINE.remoteState = null;
+    ONLINE.stopSync();
+    if (ONLINE.decideTimer) { clearTimeout(ONLINE.decideTimer); ONLINE.decideTimer = null; }
+    if (ONLINE.client) { try { ONLINE.client.end(true); } catch(e) {} ONLINE.client = null; }
+    document.getElementById('onlineConnected').style.display = 'none';
+    document.getElementById('onlineWaiting').style.display = 'none';
+    document.getElementById('onlineDisconnected').style.display = 'block';
+    setOnlineStatus('🔌 连接已断开', true);
+    if (state.phase === 'playing' || state.phase === 'complete') showLevelSelect();
+  },
+
+  disconnect: function() {
+    ONLINE.connected = false; ONLINE.isHost = false; ONLINE.isJoiner = false; ONLINE.connecting = false;
+    ONLINE.remoteKeys = {}; ONLINE.remoteState = null;
+    ONLINE.stopSync();
+    if (ONLINE.decideTimer) { clearTimeout(ONLINE.decideTimer); ONLINE.decideTimer = null; }
+    if (ONLINE.client) { try { ONLINE.client.end(true); } catch(e) {} ONLINE.client = null; }
+    document.getElementById('onlinePanel').classList.remove('show');
+    if (state.phase === 'playing' || state.phase === 'complete') showLevelSelect();
+    setOnlineStatus('🔌 已断开联机');
+  },
+
+  leaveRoom: function() {
+    ONLINE.connected = false; ONLINE.isHost = false; ONLINE.isJoiner = false; ONLINE.connecting = false;
+    ONLINE.remoteKeys = {}; ONLINE.remoteState = null;
+    ONLINE.stopSync();
+    if (ONLINE.decideTimer) { clearTimeout(ONLINE.decideTimer); ONLINE.decideTimer = null; }
+    if (ONLINE.client) { try { ONLINE.client.end(true); } catch(e) {} ONLINE.client = null; }
+    document.getElementById('onlineDisconnected').style.display = 'block';
+    document.getElementById('onlineWaiting').style.display = 'none';
+    document.getElementById('onlineConnected').style.display = 'none';
+  },
+};
+// ★ 联机初始化（立即执行，不等待 DB）
+ONLINE.init();
+
+//  【开发者指南】想增加关卡？在下方 levels 数组里追加新对象即可：
+//    { name: '关卡名', fragmentsRequired: N, map: [20×15 二维数组] }
+//  瓦片类型用上方 T 常量（数字含义见注释），必须 20 列 × 15 行！
+// ================================================================
+var levels = [
+  // ---------- 关卡 1：初次约会 ----------
+  {
+    name: '初次约会',
+    fragmentsRequired: 2,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // row 0
+      [1, 6, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 7, 1], // row 1
+      [1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1], // row 2
+      [1, 0, 1, 1, 0, 0, 0, 0,10, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1], // row 3 ← 💌 情书
+      [1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1], // row 4
+      [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1], // row 5
+      [1, 1, 1, 1, 0, 0, 0, 0, 0, 0,10, 0, 0, 0, 0, 0, 1, 1, 1, 1], // row 6 ← 💌 情书
+      [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1], // row 7
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], // row 8
+      [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1], // row 9
+      [1, 0, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 0, 0, 0, 0, 0, 0, 0, 1], // row 10
+      [1, 1, 1, 1, 2, 2, 8, 2, 9, 9, 9, 9, 3, 8, 3, 3, 1, 1, 1, 1], // row 11
+      [1, 1, 1, 1, 2, 2, 2, 2, 9, 9, 9, 9, 3, 3, 3, 3, 1, 1, 1, 1], // row 12
+      [1, 1, 1, 1, 0, 0, 0, 0, 4, 5, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1], // row 13
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // row 14
+    ]
+  },
+
+  // ---------- 关卡 2：心有灵犀 ----------
+  {
+    name: '心有灵犀',
+    fragmentsRequired: 3,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // row 0
+      [1, 1, 6, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 7, 1, 1], // row 1
+      [1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1], // row 2
+      [1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1, 1], // row 3
+      [1, 1, 0, 0, 0, 0, 1, 1, 0, 0,10, 0, 1, 1, 0, 0, 0, 0, 1, 1], // row 4 ← 💌
+      [1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1], // row 5
+      [1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0,10, 0, 0, 1, 1, 1, 1, 1], // row 6 ← 💌
+      [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1], // row 7
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], // row 8
+      [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1], // row 9
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], // row 10
+      [1, 1, 2, 2, 8, 0, 1, 1, 9, 9, 9, 9, 1, 1, 0, 8, 3, 3, 1, 1], // row 11
+      [1, 1, 2, 2, 2, 0, 1, 1, 9, 9, 9, 9, 1, 1, 0, 3, 3, 3, 1, 1], // row 12
+      [1, 1, 0, 0, 0, 0, 0, 0, 8, 4, 5, 0, 0, 0, 0, 0, 0, 0, 1, 1], // row 13
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // row 14
+    ]
+  },
+
+  // ---------- 关卡 3：患难与共 ----------
+  {
+    name: '患难与共',
+    fragmentsRequired: 3,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 6, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 7, 1],
+      [1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1],
+      [1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1],
+      [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 9, 9, 9, 9, 9, 9, 1, 1, 1, 1, 1, 1, 1],
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      [1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1],
+      [1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 1, 2, 2, 8, 2, 2, 3, 8, 3, 1, 0, 0, 0, 0, 1],
+      [1, 1, 1, 1, 0, 1, 2, 2, 2, 2, 2, 3, 3, 3, 1, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 0, 0, 0, 0, 4, 0, 0, 5, 0, 0, 0, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+
+  // ---------- 关卡 4：风雨无阻 ----------
+  {
+    name: '风雨无阻',
+    fragmentsRequired: 4,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 6, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 7, 1, 1],
+      [1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1],
+      [1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1],
+      [1, 1, 0, 1, 0, 1, 1, 1, 9, 9, 9, 9, 1, 1, 1, 0, 1, 0, 1, 1],
+      [1, 1, 0, 0, 0, 1, 1, 1, 9, 9, 9, 9, 1, 1, 1, 0, 0, 0, 1, 1],
+      [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1],
+      [1, 0, 0, 0, 0, 0, 8, 1, 0, 0, 0, 0, 1, 8, 0, 0, 0, 0, 0, 1],
+      [1, 0, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 1],
+      [1, 0, 1, 0, 0, 0, 0, 0, 0, 1,10, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+      [1, 0, 1, 1, 1, 0, 1, 2, 8, 2, 2, 2, 8, 2, 1, 0, 1, 1, 1, 1],
+      [1, 0, 0, 0, 1, 0, 1, 2, 2, 2, 2, 2, 2, 2, 1, 0, 1, 0, 0, 1],
+      [1, 1, 1, 0, 0, 0, 0, 0, 4, 0, 0, 5, 0, 0, 0, 0, 0, 0, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+
+  // ---------- 关卡 5：心心相印 ----------
+  {
+    name: '心心相印',
+    fragmentsRequired: 4,
+    holdingExit: true,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 6, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 7, 1],
+      [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1],
+      [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 9, 9,11,11, 9, 9, 1, 1, 1, 1, 1, 1, 1],
+      [1, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 1],
+      [1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+      [1, 1, 1, 1, 0, 1, 1, 2, 2, 8, 8, 3, 3, 1, 1, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 0, 0, 0, 2, 2, 2, 2, 3, 3, 0, 0, 0, 1, 1, 1, 1],
+      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+      [1, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+
+  // ---------- 关卡 6：携手共进 ----------
+  {
+    name: '携手共进',
+    fragmentsRequired: 5,
+    holdingExit: true,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 6, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1,12, 0, 7, 1],
+      [1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1],
+      [1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1],
+      [1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1],
+      [1, 1, 1, 1, 1, 1, 0, 1, 1, 9, 9, 1, 1, 0, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 0, 1, 1, 9, 9, 1, 1, 0, 1, 1, 1, 1, 1, 1],
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      [1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1],
+      [1, 1, 1, 2, 2, 8, 0, 1, 0, 1, 1, 0, 1, 0, 8, 3, 3, 1, 1, 1],
+      [1, 1, 1, 2, 2, 2, 0, 0, 8, 0, 0, 0, 0, 0, 3, 3, 3, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 0, 8, 8, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 0, 4, 5, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+
+  // ---------- 关卡 7：百折不挠 ----------
+  {
+    name: '百折不挠',
+    fragmentsRequired: 4,
+    holdingExit: true,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 6, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 7, 1, 1],
+      [1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1],
+      [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      [1, 0, 1, 1, 1, 1, 1, 1, 9, 9,11, 9, 1, 1, 1, 1, 1, 1, 0, 1],
+      [1, 0, 1, 1, 1, 1, 1, 1, 9, 9,11, 9, 1, 1, 1, 1, 1, 1, 0, 1],
+      [1, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 1],
+      [1, 1, 1, 2, 2, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 3, 3, 1, 1, 1],
+      [1, 1, 1, 2, 8, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 8, 3, 1, 1, 1],
+      [1, 1, 1, 2, 2, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 3, 3, 1, 1, 1],
+      [1, 1, 1,12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+      [1, 1, 1, 0, 0, 0, 0, 0, 0, 4, 5, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+
+  // ---------- 关卡 8：至死不渝 ----------
+  {
+    name: '至死不渝',
+    fragmentsRequired: 4,
+    holdingExit: true,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 6, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 7, 1],
+      [1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1],
+      [1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 1, 1, 1, 9, 9,11, 9, 1, 1, 1, 0, 0, 0, 0, 1],
+      [1, 1, 1, 1, 0, 1, 1, 1, 9, 9,11, 9, 1, 1, 1, 0, 1, 1, 1, 1],
+      [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+      [1, 0, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1],
+      [1, 0, 1, 1, 0, 1, 1, 0,12, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 1],
+      [1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 1],
+      [1, 0, 0, 0, 1, 1, 2, 2, 2, 8, 8, 3, 3, 3, 1, 1, 0, 0, 0, 1],
+      [1, 1, 1, 0, 1, 1, 2, 2, 0, 2, 2, 0, 3, 3, 1, 1, 0, 1, 1, 1],
+      [1, 1, 1, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 1, 1, 1],
+      [1, 1, 1, 1, 1, 0, 0, 0, 0, 4, 5, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+
+  // ---------- 关卡 9：真爱之路 ----------
+  {
+    name: '真爱之路',
+    fragmentsRequired: 6,
+    holdingExit: true,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 6, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1,12, 0, 7, 1],
+      [1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1],
+      [1, 1, 1, 0, 0, 0, 0, 1, 1, 9, 9, 1, 1, 0, 0, 0, 0, 1, 1, 1],
+      [1, 1, 0, 0, 1, 1, 0, 0, 0, 9,11, 0, 0, 0, 1, 1, 0, 0, 1, 1],
+      [1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1],
+      [1, 8, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 8, 1],
+      [1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 0, 0, 1, 0, 1,10, 0, 1, 0, 0, 0, 0, 0, 0, 1],
+      [1, 1, 1, 2, 2, 8, 0, 1, 0, 0, 0, 0, 1, 0, 8, 3, 3, 1, 1, 1],
+      [1, 1, 1, 2, 2, 2, 0, 0, 0, 1, 1, 0, 0, 0, 3, 3, 3, 1, 1, 1],
+      [1, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 1],
+      [1, 1, 1, 0, 0, 0, 0, 0, 0, 4, 5, 0, 0, 0, 0, 0, 0, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+
+  // ---------- 关卡 10：永恒之约 ----------
+  {
+    name: '永恒之约',
+    fragmentsRequired: 8,
+    holdingExit: true,
+    map: [
+    // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      [1, 6, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0,12, 7, 1],
+      [1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1],
+      [1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+      [1, 1, 1, 1, 1, 1, 1, 9, 9,11,11, 9, 9, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 9, 9,11,11, 9, 9, 1, 1, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+      [1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1],
+      [1, 0, 1, 1, 1, 8, 1, 1, 0, 1, 1, 0, 1, 1, 8, 1, 1, 1, 0, 1],
+      [1, 0, 0, 0, 1, 0, 0, 0,12, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+      [1, 1, 1, 0, 8, 1, 2, 2, 8, 0, 0, 8, 3, 3, 1, 8, 0, 1, 1, 1],
+      [1, 1, 1, 0, 0, 1, 2, 2, 2, 8, 8, 3, 3, 3, 1, 0, 0, 1, 1, 1],
+      [1, 1, 1, 1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 0, 0, 0, 0, 4, 5, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+  },
+];
+
+// ================================================================
+//  游戏状态
+// ================================================================
+var canvas = document.getElementById('gameCanvas');
+var ctx    = canvas.getContext('2d');
+
+var state = {
+  level: 0,              // 当前关卡索引
+  lives: 3,              // 剩余共享生命
+  frags: 0,              // 已收集碎片数
+  phase: 'playing',      // 'playing' | 'complete' | 'gameover' | 'win'
+  moveCooldown: 0,       // 帧计数器，限制移动速度
+  MOVE_INTERVAL: 14,     // 每 14 帧可移动一次（控制灵敏度，越大越慢）
+
+  // 角色位置
+  boy:  { x: 0, y: 0, dir: 0 },
+  girl: { x: 0, y: 0, dir: 0 },
+
+  // 牵手状态
+  holding: false,
+
+  // 地图运行时副本
+  map: [],
+
+  // 照片图像对象（null 表示使用 emoji 后备）
+  boyImg:  null,
+  girlImg: null,
+
+  // 漂浮爱心粒子
+  hearts: [],
+
+  // 开/门/时全屏撒花粒子
+  confetti: [],
+
+  // 死亡闪白
+  flash: 0,
+
+  // 亲吻动画帧计数
+  kissTimer: 0,
+
+  // 情书弹出消息
+  loveMessage: '',
+  loveMessageTimer: 0,
+
+  // 是否特殊日期（情人节等）
+  specialDate: false,
+
+  // 亲吻门计时器
+  kissGateTimer: 0,
+  kissGateOpen: false,
+
+  // 合照模式
+  couplePhotoMode: false,
+  couplePhotoTimer: 0,
+
+  // 相遇检测
+  wasAdjacent: false,
+
+  // 已解锁的最高关卡索引（0 = 第1关）
+  unlockedUpTo: 0,
+
+  // 已保存的告白情书文字
+  loveLetterText: '',
+
+  // 鼠标悬停的关卡（菜单用）
+  _hoveredLevel: -1,
+
+  // 背景星星粒子
+  bgStars: [],
+};
+
+// ==================== 全局变量（音频/合照） ====================
+var bgAudio = null;
+var bgMusicLoaded = false;
+var bgMusicPlaying = false;
+var coupleImg = null;
+
+// ==================== 浪漫消息库 ====================
+var romanticMessages = [
+  '💌 和你一起闯关，每一天都是情人节',
+  '💕 遇到你，所有的谜题都有了答案',
+  '🌟 你就是我生命里最亮的那颗星',
+  '🌸 春风十里，不如你在我身边',
+  '🌙 想和你一起，从青丝到白发',
+  '🎵 你是我的旋律，我是你的和弦',
+  '☀️ 有你在，连岩浆都觉得温暖',
+  '💎 你比所有宝藏都珍贵',
+  '🌈 和你在一起，毒水也是彩虹',
+  '🎀 你是我的命中注定',
+  '🍀 遇见你，是我这辈子最好的运气',
+  '✨ 每一次牵手，都是心动的瞬间',
+  '🌹 你是我通关路上最美的风景',
+  '💪 有你在身边，什么难关都不怕',
+  '👩‍❤️‍👨 冰与火的距离，抵不过相爱的勇气',
+  '🎂 想和你一起过每一个生日',
+  '🌊 对你的爱，像海一样深',
+  '☕ 每天早上醒来，第一眼就想看到你',
+  '🎮 和你一起玩游戏，输了也开心',
+  '🏆 你就是我人生的 MVP',
+];
+
+// ==================== 相遇随机音效（Web Audio API） ====================
+var meetAudioCtx = null;
+var meetSoundNotes = [523, 587, 659, 784, 880, 1047, 1175, 1319];
+
+/** 播放一声随机铃声（两人相邻时触发） */
+function playMeetSound() {
+  try {
+    if (!meetAudioCtx) {
+      meetAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // 每次选 2~3 个随机音符组成短旋律
+    var count = 2 + Math.floor(Math.random() * 2);
+    var now = meetAudioCtx.currentTime;
+    for (var i = 0; i < count; i++) {
+      var osc = meetAudioCtx.createOscillator();
+      var gain = meetAudioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(meetAudioCtx.destination);
+      var freq = meetSoundNotes[Math.floor(Math.random() * meetSoundNotes.length)];
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      var t = now + i * 0.08;
+      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      osc.start(t);
+      osc.stop(t + 0.25);
+    }
+  } catch (e) { /* 音频不可用时静默忽略 */ }
+}
+
+/** 播放通关浪漫旋律（《梦中的婚礼》片段） */
+function playWinMelody() {
+  try {
+    var ctx = meetAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (!meetAudioCtx) meetAudioCtx = ctx;
+    // 浪漫和弦进行：C → G → Am → F
+    var chords = [
+      [262, 330, 392],  // C
+      [392, 494, 587],  // G
+      [440, 523, 659],  // Am
+      [349, 440, 523],  // F
+    ];
+    var now = ctx.currentTime;
+    for (var ci = 0; ci < chords.length; ci++) {
+      for (var ni = 0; ni < chords[ci].length; ni++) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = chords[ci][ni];
+        osc.type = 'sine';
+        var t = now + ci * 0.6 + ni * 0.08;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.08, t + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+        osc.start(t);
+        osc.stop(t + 0.5);
+      }
+    }
+  } catch (e) { /* 音频不可用时静默忽略 */ }
+}
+
+// ==================== 手机触控状态 ====================
+var touchKeys = {
+  w: false, a: false, s: false, d: false,
+  up: false, left: false, down: false, right: false,
+};
+
+// ==================== IndexedDB 存储（空间远大于 localStorage） ====================
+var DB = {
+  db: null,
+  /** 等待数据库就绪 */
+  ready: new Promise(function (resolve, reject) {
+    var req = indexedDB.open('GameData', 1);
+    req.onupgradeneeded = function (e) {
+      var d = e.target.result;
+      if (!d.objectStoreNames.contains('kv')) d.createObjectStore('kv');
+    };
+    req.onsuccess = function (e) {
+      DB.db = e.target.result;
+      resolve();
+    };
+    req.onerror = function () {
+      console.warn('IndexedDB 不可用');
+      resolve(); // resolve 不报错，后续回退到 localStorage
+    };
+  }),
+  /** 读取，失败时回退到 localStorage */
+  get: function (key) {
+    return new Promise(function (resolve) {
+      if (!DB.db) { resolve(localStorage.getItem(key)); return; }
+      var tx = DB.db.transaction('kv', 'readonly');
+      var store = tx.objectStore('kv');
+      var r = store.get(key);
+      r.onsuccess = function () { resolve(r.result); };
+      r.onerror = function () { resolve(localStorage.getItem(key)); };
+    });
+  },
+  /** 写入，失败时回退到 localStorage */
+  set: function (key, val) {
+    return new Promise(function (resolve, reject) {
+      if (!DB.db) { try { localStorage.setItem(key, val); resolve(); } catch (e) { reject(e); } return; }
+      var tx = DB.db.transaction('kv', 'readwrite');
+      var store = tx.objectStore('kv');
+      var r = store.put(val, key);
+      r.onsuccess = function () { resolve(); };
+      r.onerror = function () {
+        // 回退到 localStorage
+        try { localStorage.setItem(key, val); resolve(); } catch (e) { reject(e); }
+      };
+    });
+  },
+  /** 删除 */
+  del: function (key) {
+    return new Promise(function (resolve) {
+      if (!DB.db) { localStorage.removeItem(key); resolve(); return; }
+      var tx = DB.db.transaction('kv', 'readwrite');
+      var store = tx.objectStore('kv');
+      var r = store.delete(key);
+      r.onsuccess = function () { resolve(); };
+      r.onerror = function () { resolve(); };
+    });
+  },
+  /** 把 localStorage 旧数据迁移到 IndexedDB */
+  migrate: function () {
+    var keys = ['photo_boy', 'photo_girl', 'bg_music', 'couple_photo'];
+    return Promise.all(keys.map(function (k) {
+      var val = localStorage.getItem(k);
+      if (!val) return;
+      return DB.set(k, val).then(function () {
+        localStorage.removeItem(k);
+      });
+    }));
+  }
+};
+
+// ================================================================
+//  照片上传与存储（核心特色功能）
+//  原理：
+//    1. 用户通过 <input type=file> 选择本地 jpg/png 照片
+//    2. 用 FileReader.readAsDataURL() 将文件读成 base64 字符串
+//    3. 存入 IndexedDB（键 'photo_boy' / 'photo_girl'）
+//    4. 创建 Image 对象加载该 base64 数据，加载完成后游戏画布自动刷新
+//    5. 刷新页面时，从 IndexedDB 读取数据自动恢复照片
+//  图片加载失败时：不会崩溃，角色以 emoji 作为后备显示
+// ================================================================
+
+/**
+ * 加载指定性别的照片（从 localStorage 读取）
+ * @param {'boy'|'girl'} gender - 性别标识
+ */
+function loadPhoto(gender) {
+  var key = gender === 'boy' ? 'photo_boy' : 'photo_girl';
+  return DB.get(key).then(function (dataUrl) {
+    if (!dataUrl) {
+      if (gender === 'boy') state.boyImg = null;
+      else state.girlImg = null;
+      return;
+    }
+    var img = new Image();
+    img.onload = function () {
+      if (gender === 'boy') state.boyImg = img;
+      else state.girlImg = img;
+    };
+    img.onerror = function () {
+      console.warn('照片加载失败，已清除存储：' + key);
+      DB.del(key);
+      if (gender === 'boy') state.boyImg = null;
+      else state.girlImg = null;
+    };
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * 触发系统文件选择器，让用户上传新照片
+ * @param {'boy'|'girl'} gender - 性别
+ */
+function uploadPhoto(gender) {
+  // 创建隐藏的 file input
+  var input = document.createElement('input');
+  input.type   = 'file';
+  input.accept = 'image/jpeg,image/png';
+
+  input.addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+
+    // 用 FileReader 将文件读成 DataURL（base64 编码）
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      var dataUrl = ev.target.result;
+      var key = gender === 'boy' ? 'photo_boy' : 'photo_girl';
+
+    // 存入 IndexedDB → 刷新页面后依然有效
+      DB.set(key, dataUrl).then(function () {
+        loadPhoto(gender);
+        setStatus((gender === 'boy' ? '男友' : '女友') + '照片已更新！');
+        // ★ 联机：主机同步照片
+        if (ONLINE.isHost) ONLINE.sendMedia(key, dataUrl);
+      }).catch(function () {
+        setStatus('⚠️ 存储空间不足，请使用更小的照片');
+      });
+    };
+    reader.onerror = function () {
+      setStatus('照片读取失败，请重试');
+    };
+    reader.readAsDataURL(file);  // 将文件编码为 base64
+  });
+
+  input.click();
+}
+
+// ---------- 绑定上传按钮 ----------
+document.getElementById('uploadBoy').addEventListener('click', function () { if (ONLINE.isJoiner) return; uploadPhoto('boy'); });
+document.getElementById('uploadGirl').addEventListener('click', function () { if (ONLINE.isJoiner) return; uploadPhoto('girl'); });
+
+// ---------- 背景音乐 & 合照按钮 ----------
+document.getElementById('uploadMusic').addEventListener('click', function () { if (ONLINE.isJoiner) return; uploadMusic(); });
+document.getElementById('uploadCouple').addEventListener('click', function () { if (ONLINE.isJoiner) return; uploadCouplePhoto(); });
+document.getElementById('musicStatus').addEventListener('click', function () { toggleMusic(); });
+
+// ================================================================
+//  音频 & 合照功能
+// ================================================================
+
+/** 从 localStorage 加载背景音乐 */
+function loadMusic() {
+  return DB.get('bg_music').then(function (dataUrl) {
+    if (!dataUrl) { bgMusicLoaded = false; return; }
+    if (bgAudio) { bgAudio.pause(); bgAudio = null; }
+    bgAudio = new Audio(dataUrl);
+    bgAudio.loop = true;
+    bgAudio.volume = 0.3;
+    bgAudio.addEventListener('canplaythrough', function () {
+      bgMusicLoaded = true;
+      updateMusicUI();
+    });
+    bgAudio.addEventListener('error', function () {
+      console.warn('背景音乐加载失败');
+      DB.del('bg_music');
+      bgAudio = null;
+      bgMusicLoaded = false;
+      updateMusicUI();
+    });
+  }).catch(function () {
+    console.warn('loadMusic 出错');
+    bgAudio = null;
+    bgMusicLoaded = false;
+  });
+}
+
+/** 上传背景音乐（MP3 文件 → FileReader → IndexedDB） */
+function uploadMusic() {
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'audio/mpeg,audio/mp3,audio/wav';
+  input.addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var maxSize = 20 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setStatus('⚠️ 文件过大（限制 ' + (maxSize / 1024 / 1024) + 'MB）');
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      DB.set('bg_music', ev.target.result).then(function () {
+        loadMusic().then(function () {
+          toggleMusic();
+          setStatus('🎵 背景音乐已更新！');
+          // ★ 联机：主机同步音乐
+          if (ONLINE.isHost) ONLINE.sendMedia('bg_music', ev.target.result);
+        });
+      }).catch(function () {
+        setStatus('⚠️ 存储空间不足，请使用更小的文件（建议 < 5MB）');
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+  input.click();
+}
+
+/** 切换播放/暂停 */
+function toggleMusic() {
+  if (!bgAudio || !bgMusicLoaded) return;
+  if (bgMusicPlaying) {
+    bgAudio.pause();
+    bgMusicPlaying = false;
+  } else {
+    bgAudio.play().catch(function () { /* 浏览器阻止自动播放 */ });
+    bgMusicPlaying = true;
+  }
+  updateMusicUI();
+}
+
+/** 更新音乐状态图标 */
+function updateMusicUI() {
+  var el = document.getElementById('musicIcon');
+  if (!el) return;
+  el.textContent = bgMusicLoaded && bgMusicPlaying ? '🎵' : '⚪';
+}
+
+/** 从 localStorage 加载合照 */
+function loadCouplePhoto() {
+  return DB.get('couple_photo').then(function (dataUrl) {
+    if (!dataUrl) { coupleImg = null; return; }
+    var img = new Image();
+    img.onload = function () { coupleImg = img; };
+    img.onerror = function () {
+      console.warn('合照加载失败');
+      DB.del('couple_photo');
+      coupleImg = null;
+    };
+    img.src = dataUrl;
+  });
+}
+
+/** 上传合照 */
+function uploadCouplePhoto() {
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg,image/png';
+  input.addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      DB.set('couple_photo', ev.target.result).then(function () {
+        loadCouplePhoto();
+        setStatus('📸 合照已上传！靠近彼此按下 P 键或点 📸 拍照 ~');
+        // ★ 联机：主机同步合照
+        if (ONLINE.isHost) ONLINE.sendMedia('couple_photo', ev.target.result);
+      }).catch(function () {
+        setStatus('⚠️ 合照存储空间不足');
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+  input.click();
+}
+
+/** 触发合照展示 */
+function triggerCouplePhoto() {
+  if (!coupleImg || !coupleImg.complete || coupleImg.naturalWidth === 0) {
+    setStatus('📸 请先上传合照！点击「上传合照」按钮');
+    return;
+  }
+  var dx = Math.abs(state.boy.x - state.girl.x);
+  var dy = Math.abs(state.boy.y - state.girl.y);
+  if (dx + dy > 2) {
+    setStatus('📸 两人需要靠近才能拍合照哦 ~');
+    return;
+  }
+  state.couplePhotoMode = true;
+  state.couplePhotoTimer = 300;
+  burstHearts(CANVAS_W / 2, CANVAS_H / 2, 25);
+  setStatus('📸 合照！💖');
+
+  // ★ 自动下载合照（仅主机执行，Joiner 不同步下载）
+  if (!(ONLINE.isJoiner && ONLINE.connected)) {
+    setTimeout(function() {
+      var link = document.createElement('a');
+      link.download = 'our-couple-photo-520.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }, 200);
+  }
+}
+
+// ================================================================
+//  工具函数
+// ================================================================
+
+/** 获取地图上某格子的瓦片类型 */
+function getTile(map, x, y) {
+  if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return T.WALL;
+  return map[y][x];
+}
+
+/** 更新 HUD 上的状态文字 */
+function setStatus(text) {
+  document.getElementById('statusDisplay').textContent = text;
+}
+
+/**
+ * 判断某角色能否在某瓦片上行走
+ * @param {'boy'|'girl'} who
+ * @param {number} tile - 瓦片类型
+ * @returns {boolean}
+ */
+function canWalk(who, tile) {
+  // 墙、普通门和牵手门：谁都不能走
+  if (tile === T.WALL || tile === T.GATE || tile === T.HGATE) return false;
+
+  // 亲吻门：仅在开门时可通过
+  if (tile === T.KGATE) return state.kissGateOpen;
+
+  // 通用地面：双方都可以走
+  if (tile === T.FLOOR || tile === T.HEART || tile === T.LOVE ||
+      tile === T.FBEG || tile === T.WBEG ||
+      tile === T.FEXIT || tile === T.WEXIT) return true;
+
+  if (who === 'boy') {
+    // 火男孩：岩浆安全，毒水致命
+    if (tile === T.LAVA)   return true;
+    if (tile === T.POISON) return false;
+  } else {
+    // 水女孩：毒水安全，岩浆致命
+    if (tile === T.POISON) return true;
+    if (tile === T.LAVA)   return false;
+  }
+  return true;
+}
+
+// ================================================================
+//  关卡管理
+// ================================================================
+
+/** 加载指定编号的关卡 */
+function loadLevel(idx) {
+  if (idx >= levels.length) {
+    // 所有关卡通关
+    showOverlay('🏆 恭喜通关！', '你们是天生一对！❤️', '重新开始');
+    state.phase = 'win';
+    return;
+  }
+
+  var lv = levels[idx];
+  state.level   = idx;
+  state.frags   = 0;
+  state.phase   = 'playing';
+  state.flash   = 0;
+  state.hearts  = [];
+  state.holding = false;
+  state.kissTimer = 0;
+  state.kissGateTimer = 0;
+  state.kissGateOpen = false;
+  state.loveMessageTimer = 0;
+
+  // 深拷贝地图（后续 gate 状态会变化）
+  state.map = [];
+  for (var r = 0; r < lv.map.length; r++) {
+    state.map.push(lv.map[r].slice());
+  }
+
+  // 找到出生点
+  for (var r2 = 0; r2 < ROWS; r2++) {
+    for (var c = 0; c < COLS; c++) {
+      var t = state.map[r2][c];
+      if (t === T.FBEG) { state.boy.x = c; state.boy.y = r2; }
+      if (t === T.WBEG) { state.girl.x = c; state.girl.y = r2; }
+    }
+  }
+
+  state.boy.dir = 0;
+  state.girl.dir = 0;
+  state.moveCooldown = 0;
+
+  updateHUD();
+  document.getElementById('overlay').classList.remove('show');
+  setStatus('第 ' + (idx+1) + ' 关：' + lv.name);
+  // ★ 联机：通知 Joiner 加载关卡
+  if (ONLINE.isHost && ONLINE.connected) ONLINE.sendCommand('loadLevel', {level: idx});
+}
+
+// ==================== 关卡解锁进度 ====================
+/** 保存当前解锁进度到 IndexedDB */
+function saveLevelProgress() {
+  DB.set('level_progress', state.unlockedUpTo).catch(function () {});
+}
+
+/** 从 IndexedDB 加载解锁进度 */
+function loadLevelProgress() {
+  return DB.get('level_progress').then(function (val) {
+    state.unlockedUpTo = (typeof val === 'number' && val >= 0) ? val : 0;
+  }).catch(function () {
+    state.unlockedUpTo = 0;
+  });
+}
+
+// ==================== 告白情书 ====================
+/** 保存情书到 IndexedDB */
+function saveLoveLetter(text) {
+  state.loveLetterText = text;
+  DB.set('love_letter', text).catch(function () {});
+}
+
+/** 从 IndexedDB 加载情书 */
+function loadLoveLetter() {
+  return DB.get('love_letter').then(function (val) {
+    state.loveLetterText = (typeof val === 'string') ? val : '';
+  }).catch(function () {
+    state.loveLetterText = '';
+  });
+}
+
+/** 显示情书输入/展示区域 */
+function showLoveLetterSection() {
+  var section = document.getElementById('loveLetterSection');
+  var input = document.getElementById('loveLetterInput');
+  var display = document.getElementById('loveLetterDisplay');
+  var sendBtn = document.getElementById('loveLetterSendBtn');
+
+  section.classList.add('show');
+
+  if (state.loveLetterText) {
+    // 已有保存的情书 → 展示
+    input.style.display = 'none';
+    sendBtn.style.display = 'none';
+    display.innerHTML = '<div class="letter-header">💖</div>' + state.loveLetterText.replace(/\n/g, '<br>');
+    display.classList.add('show');
+  } else {
+    // 未写过 → 显示输入框
+    input.style.display = '';
+    sendBtn.style.display = '';
+    display.classList.remove('show');
+    input.value = '';
+    input.focus();
+  }
+}
+
+/** 开启关卡选择界面 */
+function showLevelSelect() {
+  state.phase = 'menu';
+  state.lives = 3;
+  document.getElementById('overlay').classList.remove('show');
+  setStatus('💖 选择关卡开始游戏');
+  updateHUD();
+  // ★ 联机：通知 Joiner 返回选关
+  if (ONLINE.isHost && ONLINE.connected) ONLINE.sendCommand('showLevelSelect');
+  }
+
+/** 重新开始（从当前关卡重打） */
+function restartGame() {
+  state.lives = 3;
+  state.phase = 'playing';
+  loadLevel(state.level);
+}
+
+/** 刷新 HUD 显示 */
+function updateHUD() {
+  if (state.phase === 'menu') {
+    document.getElementById('levelDisplay').textContent = '💖 选关';
+    document.getElementById('fragDisplay').textContent  = '--';
+    return;
+  }
+  var lv = levels[state.level];
+  if (!lv) return;
+  document.getElementById('levelDisplay').textContent = '' + (state.level+1) + ' · ' + lv.name;
+  document.getElementById('fragDisplay').textContent  = '' + state.frags + ' / ' + lv.fragmentsRequired;
+
+  var heartsStr = '';
+  for (var i = 0; i < state.lives; i++) heartsStr += '❤️';
+  for (var j = state.lives; j < 3; j++) heartsStr += '🖤';
+  document.getElementById('lifeDisplay').textContent = heartsStr;
+}
+
+// ================================================================
+//  覆盖层
+// ================================================================
+
+function showOverlay(title, desc, btnText, showBack) {
+  document.getElementById('overlayTitle').textContent = title;
+  document.getElementById('overlayDesc').textContent  = desc;
+  document.getElementById('overlayBtn').textContent   = btnText;
+  document.getElementById('overlayBackBtn').style.display = showBack ? 'inline-block' : 'none';
+  // 默认隐藏情书区域，win 时由 showLoveLetterSection 单独打开
+  document.getElementById('loveLetterSection').classList.remove('show');
+  document.getElementById('overlay').classList.remove('win');
+  document.getElementById('overlay').classList.add('show');
+}
+
+document.getElementById('overlayBtn').addEventListener('click', function () {
+  if (state.phase === 'complete') {
+    if (state.level + 1 >= levels.length) {
+      // 最后一关完成 → 回选关
+      showLevelSelect();
+    } else {
+      loadLevel(state.level + 1);
+    }
+  } else if (state.phase === 'gameover') {
+    // 重新开始当前关卡
+    state.lives = 3;
+    state.phase = 'playing';
+    loadLevel(state.level);
+  } else if (state.phase === 'win') {
+    showLevelSelect();
+  }
+});
+
+document.getElementById('overlayBackBtn').addEventListener('click', function () {
+  showLevelSelect();
+});
+
+/** 主页按钮：返回关卡选择 */
+document.getElementById('homeBtn').addEventListener('click', function () {
+  if (state.phase === 'playing' || state.phase === 'complete' || state.phase === 'gameover') {
+    showLevelSelect();
+  }
+});
+
+/** 情书发送按钮 */
+document.getElementById('loveLetterSendBtn').addEventListener('click', function () {
+  var input = document.getElementById('loveLetterInput');
+  var text = input.value.trim();
+  if (!text) {
+    input.focus();
+    input.style.borderColor = '#ff1744';
+    setTimeout(function () { input.style.borderColor = ''; }, 1000);
+    return;
+  }
+  saveLoveLetter(text);
+  // 切换到展示模式
+  var display = document.getElementById('loveLetterDisplay');
+  display.innerHTML = '<div class="letter-header">💖</div>' + text.replace(/\n/g, '<br>');
+  display.classList.add('show');
+  input.style.display = 'none';
+  document.getElementById('loveLetterSendBtn').style.display = 'none';
+  setStatus('💌 情书已保存！你们的爱意永存 ❤️');
+});
+
+// ================================================================
+//  输入处理 —— 双人同时按键无冲突
+//  用 Set 记录当前按下的键，每帧统一读取
+// ================================================================
+
+var keys = new Set();
+
+document.addEventListener('keydown', function (e) {
+  keys.add(e.key);
+
+  // 阻止方向键滚动页面 & 空格触发表单
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].indexOf(e.key) !== -1) {
+    e.preventDefault();
+  }
+
+  // 空格切换牵手
+  if (e.key === ' ' && state.phase === 'playing') {
+    e.preventDefault();
+    toggleHoldHands();
+  }
+
+  // K 键亲吻（相邻时触发）
+  if ((e.key === 'k' || e.key === 'K') && state.phase === 'playing' && state.kissTimer <= 0) {
+    var dx = Math.abs(state.boy.x - state.girl.x);
+    var dy = Math.abs(state.boy.y - state.girl.y);
+    if (dx + dy <= 2) {
+      e.preventDefault();
+      doKiss();
+    }
+  }
+
+  // P 键合照（相邻时触发）
+  if ((e.key === 'p' || e.key === 'P') && state.phase === 'playing') {
+    e.preventDefault();
+    triggerCouplePhoto();
+  }
+});
+
+document.addEventListener('keyup', function (e) {
+  keys.delete(e.key);
+});
+
+// 页面失焦时清空按键，防止卡键
+window.addEventListener('blur', function () { keys.clear(); });
+
+// ==================== Canvas 点击（关卡选择） ====================
+canvas.addEventListener('click', function (e) {
+  if (state.phase !== 'menu' || (ONLINE.isJoiner && ONLINE.connected)) return;
+  var rect = canvas.getBoundingClientRect();
+  var scaleX = CANVAS_W / rect.width;
+  var scaleY = CANVAS_H / rect.height;
+  var mx = (e.clientX - rect.left) * scaleX;
+  var my = (e.clientY - rect.top) * scaleY;
+
+  for (var i = 0; i < levels.length; i++) {
+    if (i > state.unlockedUpTo) break; // 未解锁及以后都不用检测
+    var r = getLevelCardRect(i);
+    if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+      state.lives = 3;
+      loadLevel(i);
+      return;
+    }
+  }
+});
+
+// Canvas 鼠标移动（悬停高亮）
+canvas.addEventListener('mousemove', function (e) {
+  if (state.phase !== 'menu') {
+    state._hoveredLevel = -1;
+    return;
+  }
+  var rect = canvas.getBoundingClientRect();
+  var scaleX = CANVAS_W / rect.width;
+  var scaleY = CANVAS_H / rect.height;
+  var mx = (e.clientX - rect.left) * scaleX;
+  var my = (e.clientY - rect.top) * scaleY;
+  state._hoveredLevel = -1;
+  for (var i = 0; i < levels.length; i++) {
+    if (i > state.unlockedUpTo) break;
+    var r = getLevelCardRect(i);
+    if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+      state._hoveredLevel = i;
+      return;
+    }
+  }
+});
+
+// ================================================================
+//  牵手逻辑
+// ================================================================
+
+function toggleHoldHands() {
+  var dx = Math.abs(state.boy.x - state.girl.x);
+  var dy = Math.abs(state.boy.y - state.girl.y);
+  var adjacent = (dx + dy) === 1;
+
+  if (!state.holding && !adjacent) {
+    setStatus('两人需要相邻才能牵手 🤝');
+    return;
+  }
+
+  state.holding = !state.holding;
+  setStatus(state.holding ? '❤️ 牵手成功！一起移动吧' : '🤚 已松开手');
+
+  // ★ 刚牵手时重新检查门（HGATE 可能因此打开）
+  if (state.holding && state.phase === 'playing') {
+    checkGates();
+  }
+}
+
+// ================================================================
+//  游戏核心逻辑
+// ================================================================
+
+/**
+ * 尝试移动一个角色
+ * @param {'boy'|'girl'} who
+ * @param {number} dx
+ * @param {number} dy
+ * @returns {boolean} 是否成功移动
+ */
+function tryMove(who, dx, dy) {
+  var chara = who === 'boy' ? state.boy : state.girl;
+  var nx = chara.x + dx;
+  var ny = chara.y + dy;
+
+  // 更新朝向
+  if (dx > 0) chara.dir = 1;
+  else if (dx < 0) chara.dir = 2;
+  if (dy > 0) chara.dir = 3;
+  else if (dy < 0) chara.dir = 4;
+
+  var tile = getTile(state.map, nx, ny);
+
+  if (canWalk(who, tile)) {
+    chara.x = nx;
+    chara.y = ny;
+
+    // 收集爱心碎片
+    if (tile === T.HEART) {
+      state.map[ny][nx] = T.FLOOR;
+      state.frags++;
+      updateHUD();
+      setStatus('❤️ 收集到碎片！(' + state.frags + '/' + levels[state.level].fragmentsRequired + ')');
+      checkGates();
+    }
+
+    // 收集情书 → 显示浪漫消息
+    if (tile === T.LOVE) {
+      state.map[ny][nx] = T.FLOOR;
+      var msg = romanticMessages[Math.floor(Math.random() * romanticMessages.length)];
+      state.loveMessage = msg;
+      state.loveMessageTimer = 180;
+      setStatus('💌 ' + msg);
+      burstHearts(nx * TILE + TILE/2, ny * TILE + TILE/2, 20);
+    }
+
+    checkExits(who);
+    return true;
+  }
+  // 走入致命地形 → 扣命重生
+  else if ((who === 'boy' && tile === T.POISON) || (who === 'girl' && tile === T.LAVA)) {
+    dieAndRespawn();
+  }
+
+  return false;
+}
+
+/** 角色死亡处理 */
+function dieAndRespawn() {
+  state.lives--;
+  state.flash = 15;
+  updateHUD();
+
+  if (state.lives <= 0) {
+    state.phase = 'gameover';
+    showOverlay('💔 游戏结束', '别灰心，再来一次吧！', '重新开始', true);
+    return;
+  }
+
+  // 重置到出生点
+  for (var r = 0; r < ROWS; r++) {
+    for (var c = 0; c < COLS; c++) {
+      if (state.map[r][c] === T.FBEG) { state.boy.x = c; state.boy.y = r; }
+      if (state.map[r][c] === T.WBEG) { state.girl.x = c; state.girl.y = r; }
+    }
+  }
+  // 重置地图和碎片
+  var lv = levels[state.level];
+  state.map = [];
+  for (var i = 0; i < lv.map.length; i++) {
+    state.map.push(lv.map[i].slice());
+  }
+  state.frags = 0;
+  updateHUD();
+  setStatus('💀 扣一条命！剩余 ' + state.lives + ' 条');
+}
+
+/** 收集足够碎片后打开所有 GATE 和 HGATE（牵手门额外需要牵手） */
+function checkGates() {
+  var lv = levels[state.level];
+  if (state.frags >= lv.fragmentsRequired) {
+    var opened = false;
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        if (state.map[r][c] === T.GATE) {
+          state.map[r][c] = T.FLOOR;
+          opened = true;
+        }
+        // HGATE 需要牵手才能开
+        if (state.map[r][c] === T.HGATE && state.holding) {
+          state.map[r][c] = T.FLOOR;
+          opened = true;
+        }
+      }
+    }
+    if (opened) {
+      setStatus('🔓 门已打开！快去出口吧！');
+      spawnConfetti();
+    }
+  }
+}
+
+/** 检查出口条件 */
+function checkExits(who) {
+  var lv  = levels[state.level];
+  var boy = state.boy;
+  var girl = state.girl;
+
+  var boyOnExit  = getTile(state.map, boy.x, boy.y) === T.FEXIT;
+  var girlOnExit = getTile(state.map, girl.x, girl.y) === T.WEXIT;
+
+  // ★ 牵手通关：某些关卡需要牵手才能一起离开
+  var holdingOk = !lv.holdingExit || state.holding;
+
+  if (boyOnExit && girlOnExit && state.frags >= lv.fragmentsRequired && holdingOk) {
+    state.phase = 'complete';
+    // 解锁下一关
+    if (state.level + 1 > state.unlockedUpTo) {
+      state.unlockedUpTo = state.level + 1;
+      saveLevelProgress();
+    }
+    if (state.level + 1 >= levels.length) {
+      state.phase = 'win';
+      showOverlay('🏆 恭喜通关！', '💌 写下你想对 TA 说的话吧', '返回选关', true);
+      document.getElementById('overlay').classList.add('win');
+      // 播放通关浪漫旋律
+      playWinMelody();
+      // 自动播放背景音乐
+      if (bgAudio && bgMusicLoaded && !bgMusicPlaying) {
+        bgAudio.play().catch(function () {});
+        bgMusicPlaying = true;
+        updateMusicUI();
+      }
+      // 显示告白情书区域
+      showLoveLetterSection();
+    } else {
+      showOverlay('🎉 闯关成功！', '第 ' + (state.level+1) + ' 关「' + lv.name + '」完成！', '下一关');
+    }
+    return;
+  }
+
+  if ((boyOnExit || girlOnExit) && state.frags < lv.fragmentsRequired) {
+    setStatus('还需要 ' + (lv.fragmentsRequired - state.frags) + ' 个碎片才能开门 🧧');
+  } else if ((boyOnExit || girlOnExit) && lv.holdingExit && !state.holding && state.frags >= lv.fragmentsRequired) {
+    setStatus('🤝 需要牵手才能一起离开！按空格键牵手');
+  }
+}
+
+// ================================================================
+//  每帧更新
+// ================================================================
+
+function update() {
+  // ★ 联机：Joiner 应用 Host 状态快照（必须在 phase 检查之前，确保状态及时同步）
+  if (ONLINE.isJoiner && ONLINE.connected) {
+    // 同步触控按键到 keys（移动端方向键即时发送靠它）
+    syncTouchKeys();
+
+    if (ONLINE.remoteState) {
+      var rs = ONLINE.remoteState;
+      state.boy = rs.boy; state.girl = rs.girl;
+      state.frags = rs.frags; state.lives = rs.lives; state.phase = rs.phase;
+      state.holding = rs.holding; state.kissTimer = rs.kissTimer;
+      state.flash = rs.flash; state.level = rs.level;
+      state.loveMessage = rs.loveMessage; state.loveMessageTimer = rs.loveMessageTimer;
+      state.couplePhotoMode = rs.couplePhotoMode; state.couplePhotoTimer = rs.couplePhotoTimer;
+      state.kissGateTimer = rs.kissGateTimer || 0; state.kissGateOpen = rs.kissGateOpen || false;
+      state.map = rs.map;
+      state.hearts = rs.hearts || []; state.confetti = rs.confetti || [];
+    }
+
+    // ★ 本地预测：Joiner 立即响应方向键，消除网络延迟感
+    if (state.phase === 'playing' && state.moveCooldown <= 0) {
+      var gDx = 0, gDy = 0;
+      if (keys.has('ArrowUp'))    gDy = -1;
+      if (keys.has('ArrowDown'))  gDy =  1;
+      if (keys.has('ArrowLeft'))  gDx = -1;
+      if (keys.has('ArrowRight')) gDx =  1;
+      if (gDx !== 0 && gDy !== 0) gDy = 0;
+      if (gDx !== 0 || gDy !== 0) {
+        var nx = state.girl.x + gDx;
+        var ny = state.girl.y + gDy;
+        if (nx >= 0 && nx < 20 && ny >= 0 && ny < 15) {
+          var t = state.map[ny] ? state.map[ny][nx] : -1;
+          if (t !== T.WALL && t !== T.WATER && t !== T.LAVA) {
+            state.girl.x = nx;
+            state.girl.y = ny;
+            state.girl.dir = gDx !== 0 ? (gDx > 0 ? 1 : -1) : (gDy > 0 ? 1 : -1);
+            state.moveCooldown = state.MOVE_INTERVAL || 6;
+          }
+        }
+      }
+    }
+    if (state.moveCooldown > 0) state.moveCooldown--;
+    return; // 不执行本地完整游戏逻辑
+  }
+
+  if (state.phase !== 'playing') return;
+
+  // 递减计时器
+  if (state.flash > 0) state.flash--;
+  if (state.kissTimer > 0) state.kissTimer--;
+  // ★ 亲吻门计时器
+  if (state.kissGateTimer > 0) {
+    state.kissGateTimer--;
+    state.kissGateOpen = true;
+  } else {
+    state.kissGateOpen = false;
+  }
+  if (state.loveMessageTimer > 0) state.loveMessageTimer--;
+  // ★ 更新撒花粒子
+  for (var ci = state.confetti.length - 1; ci >= 0; ci--) {
+    var cf = state.confetti[ci];
+    cf.x += cf.vx + Math.sin(cf.life * 0.05) * cf.sway;
+    cf.y += cf.vy;
+    cf.rot += cf.rotSpeed;
+    cf.life--;
+    if (cf.life <= 0 || cf.y > CANVAS_H + 30) state.confetti.splice(ci, 1);
+  }
+  if (state.couplePhotoTimer > 0) {
+    state.couplePhotoTimer--;
+    if (state.couplePhotoTimer <= 0) state.couplePhotoMode = false;
+  }
+
+  // 相遇检测：两人紧邻 → 播放随机音效
+  var dist = Math.abs(state.boy.x - state.girl.x) + Math.abs(state.boy.y - state.girl.y);
+  var adjacent = dist === 1;
+  if (adjacent && !state.wasAdjacent) {
+    playMeetSound();
+  }
+  state.wasAdjacent = adjacent;
+
+  // 触控按键同步到 keys 集合
+  syncTouchKeys();
+
+  if (state.moveCooldown > 0) {
+    state.moveCooldown--;
+    return;
+  }
+
+  // ★ 联机：Host 合并 Joiner 的方向键输入（同步 keys Set，松键时删除）
+  if (ONLINE.isHost && ONLINE.connected) {
+    if (ONLINE.remoteKeys.ArrowUp)    keys.add("ArrowUp");    else keys.delete("ArrowUp");
+    if (ONLINE.remoteKeys.ArrowDown)  keys.add("ArrowDown");  else keys.delete("ArrowDown");
+    if (ONLINE.remoteKeys.ArrowLeft)  keys.add("ArrowLeft");  else keys.delete("ArrowLeft");
+    if (ONLINE.remoteKeys.ArrowRight) keys.add("ArrowRight"); else keys.delete("ArrowRight");
+  }
+  // ========== 读取按键 ==========
+  var boyDx = 0, boyDy = 0;
+  if (keys.has('w') || keys.has('W')) boyDy = -1;
+  if (keys.has('s') || keys.has('S')) boyDy =  1;
+  if (keys.has('a') || keys.has('A')) boyDx = -1;
+  if (keys.has('d') || keys.has('D')) boyDx =  1;
+
+  var girlDx = 0, girlDy = 0;
+  if (keys.has('ArrowUp'))    girlDy = -1;
+  if (keys.has('ArrowDown'))  girlDy =  1;
+  if (keys.has('ArrowLeft'))  girlDx = -1;
+  if (keys.has('ArrowRight')) girlDx =  1;
+
+  // 防止斜向移动
+  if (boyDx !== 0 && boyDy !== 0) boyDy = 0;
+  if (girlDx !== 0 && girlDy !== 0) girlDy = 0;
+
+  var boyMoving  = boyDx !== 0  || boyDy !== 0;
+  var girlMoving = girlDx !== 0 || girlDy !== 0;
+
+  if (!boyMoving && !girlMoving) return;
+
+  var moved = false;
+
+  if (state.holding) {
+    // 牵手同步模式
+    if (boyMoving) {
+      if (tryMove('boy', boyDx, boyDy)) {
+        tryMove('girl', boyDx, boyDy);
+        moved = true;
+      } else if (girlMoving) {
+        moved = tryMove('girl', girlDx, girlDy) || moved;
+      }
+    } else if (girlMoving) {
+      if (tryMove('girl', girlDx, girlDy)) {
+        tryMove('boy', girlDx, girlDy);
+        moved = true;
+      } else if (boyMoving) {
+        moved = tryMove('boy', boyDx, boyDy) || moved;
+      }
+    }
+  } else {
+    // 各自独立移动
+    if (boyMoving)  moved = tryMove('boy', boyDx, boyDy) || moved;
+    if (girlMoving) moved = tryMove('girl', girlDx, girlDy) || moved;
+  }
+
+  if (moved) {
+    state.moveCooldown = state.holding ? 10 : state.MOVE_INTERVAL;
+
+    // 牵手自动断开检查
+    if (state.holding) {
+      var dx = Math.abs(state.boy.x - state.girl.x);
+      var dy = Math.abs(state.boy.y - state.girl.y);
+      if (dx + dy > 2) {
+        state.holding = false;
+        setStatus('🤚 距离太远，自动松手');
+      }
+    }
+
+    spawnHeartParticles();
+    updateHUD();
+  }
+}
+
+// ==================== 爱心粒子 ====================
+
+function spawnHeartParticles() {
+  var dx = Math.abs(state.boy.x - state.girl.x);
+  var dy = Math.abs(state.boy.y - state.girl.y);
+  // 特殊日期触发距离更远、概率更高
+  var threshold = state.specialDate ? 5 : 3;
+  var rate = state.specialDate ? 0.5 : 0.3;
+  if (dx + dy <= threshold && Math.random() < rate) {
+    var colors = ['#ff69b4', '#ff1493', '#ff6b9d', '#ffd700', '#ffa07a'];
+    var mx = (state.boy.x + state.girl.x) / 2 * TILE + TILE/2;
+    var my = (state.boy.y + state.girl.y) / 2 * TILE + TILE/2;
+    state.hearts.push({
+      x: mx + (Math.random() - 0.5) * 30,
+      y: my + (Math.random() - 0.5) * 10,
+      vy: -1.2 - Math.random() * 0.8,
+      vx: (Math.random() - 0.5) * 0.5,
+      life: 80 + Math.random() * 40,
+      maxLife: 80 + Math.random() * 40,
+      size: 10 + Math.random() * 10,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    });
+  }
+
+  for (var i = state.hearts.length - 1; i >= 0; i--) {
+    var h = state.hearts[i];
+    h.x += h.vx;
+    h.y += h.vy;
+    h.vy -= 0.02;
+    h.life--;
+    if (h.life <= 0) state.hearts.splice(i, 1);
+  }
+  if (state.hearts.length > 60) state.hearts.splice(0, state.hearts.length - 60);
+}
+
+/** 在指定坐标爆发大量爱心（收集情书 / 亲吻时触发） */
+function burstHearts(cx, cy, count) {
+  var colors = ['#ff69b4', '#ff1493', '#ff6b9d', '#ffd700', '#ffa07a'];
+  for (var i = 0; i < count; i++) {
+    var angle = Math.random() * Math.PI * 2;
+    var speed = 1 + Math.random() * 3;
+    state.hearts.push({
+      x: cx + (Math.random() - 0.5) * 10,
+      y: cy + (Math.random() - 0.5) * 10,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 1,
+      life: 50 + Math.random() * 40,
+      maxLife: 50 + Math.random() * 40,
+      size: 6 + Math.random() * 12,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    });
+  }
+}
+
+// ★ 全屏撒花特效：收集足够碎片开门时从顶部掉落大量爱心/花瓣
+function spawnConfetti() {
+  var colors = ['#ff6b9d', '#ff69b4', '#ff1493', '#ffb6c1', '#ff4081', '#e94560', '#ffa07a', '#ffd700'];
+  for (var i = 0; i < 60; i++) {
+    state.confetti.push({
+      x: Math.random() * CANVAS_W,
+      y: -20 - Math.random() * CANVAS_H * 0.5,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: 1.5 + Math.random() * 2.5,
+      life: 180 + Math.random() * 120,
+      maxLife: 180 + Math.random() * 120,
+      size: 6 + Math.random() * 12,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.05,
+      sway: (Math.random() - 0.5) * 0.3,
+    });
+  }
+}
+
+/** 亲吻动作：大爱心 + 爆发 + 浪漫消息 + 开门 */
+function doKiss() {
+  if (state.kissTimer > 0) return;
+  state.kissTimer = 40;
+
+  var mx = (state.boy.x + state.girl.x) / 2 * TILE + TILE/2;
+  var my = (state.boy.y + state.girl.y) / 2 * TILE + TILE/2;
+  burstHearts(mx, my, 30);
+
+  // ★ 亲吻触感振动（手机支持）
+  if (navigator.vibrate) navigator.vibrate(200);
+
+  // ★ 亲吻门检测：两人附近 1 格内有 KGATE 则开门 1.5 秒
+  var kissGateTriggered = false;
+  function checkNearKGATE(px, py) {
+    for (var dr = -1; dr <= 1; dr++) {
+      for (var dc = -1; dc <= 1; dc++) {
+        if (Math.abs(dr) + Math.abs(dc) !== 1) continue;
+        var tx = px + dc, ty = py + dr;
+        if (tx >= 0 && tx < COLS && ty >= 0 && ty < ROWS &&
+            state.map[ty][tx] === T.KGATE) {
+          state.kissGateTimer = 90; // 1.5 秒（60fps）
+          state.kissGateOpen = true;
+          kissGateTriggered = true;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  checkNearKGATE(state.boy.x, state.boy.y);
+  checkNearKGATE(state.girl.x, state.girl.y);
+
+  var msg = romanticMessages[Math.floor(Math.random() * romanticMessages.length)];
+  state.loveMessage = '💋 ' + msg;
+  state.loveMessageTimer = 200;
+  setStatus('💋 ' + msg + (kissGateTriggered ? ' 🔓 亲吻门已打开！' : ''));
+
+  // 亲吻恢复一条命（最多回满）
+  if (state.lives < 3) {
+    state.lives++;
+    updateHUD();
+    state.loveMessage += ' ❤️+1';
+    setStatus('💋 ' + msg + (kissGateTriggered ? ' 🔓 亲吻门已打开！' : '') + ' ❤️+1');
+  }
+}
+
+// ==================== 触控按键同步 ====================
+// 将 touchKeys 状态同步到 keys Set，模拟键盘按键
+function syncTouchKeys() {
+  // 注意：只添加触控键，不删除键盘键
+  // 键盘键由 keydown/keyup 管理，触控键释放时自行清理
+  if (touchKeys.w) keys.add('w');
+  if (touchKeys.a) keys.add('a');
+  if (touchKeys.s) keys.add('s');
+  if (touchKeys.d) keys.add('d');
+  if (touchKeys.up)    keys.add('ArrowUp');
+  if (touchKeys.left)  keys.add('ArrowLeft');
+  if (touchKeys.down)  keys.add('ArrowDown');
+  if (touchKeys.right) keys.add('ArrowRight');
+}
+
+// ================================================================
+//  渲染
+// ================================================================
+
+/** 绘制爱心图标 */
+function drawHeartIcon(cx, cy, size, color) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, size * 0.35);
+  ctx.bezierCurveTo(-size * 0.5, -size * 0.2, -size, size * 0.15, 0, size * 0.8);
+  ctx.bezierCurveTo(size, size * 0.15, size * 0.5, -size * 0.2, 0, size * 0.35);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 绘制地图 */
+function drawMap() {
+  for (var r = 0; r < ROWS; r++) {
+    for (var c = 0; c < COLS; c++) {
+      var tile = state.map[r][c];
+      var x = c * TILE, y = r * TILE;
+
+      switch (tile) {
+        case T.FLOOR:
+          ctx.fillStyle = '#3a3a5c';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = '#333355';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, TILE, TILE);
+          break;
+        case T.WALL:
+          ctx.fillStyle = '#2a2a3e';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = '#1e1e30';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, TILE, TILE);
+          ctx.beginPath();
+          ctx.moveTo(x, y + TILE/2);
+          ctx.lineTo(x + TILE, y + TILE/2);
+          ctx.moveTo(x + TILE/2, y);
+          ctx.lineTo(x + TILE/2, y + TILE/2);
+          ctx.stroke();
+          break;
+        case T.LAVA:
+          ctx.fillStyle = '#cc4400';
+          ctx.fillRect(x, y, TILE, TILE);
+          for (var i = 0; i < 3; i++) {
+            var wave = (Date.now() / 300 + i * 7) % (TILE * 2);
+            ctx.fillStyle = i % 2 === 0 ? '#ff6600' : '#ff9933';
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.ellipse(x + wave / 2, y + TILE * (0.3 + i * 0.2), TILE * 0.3, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        case T.POISON:
+          ctx.fillStyle = '#2a6644';
+          ctx.fillRect(x, y, TILE, TILE);
+          for (var j = 0; j < 3; j++) {
+            var wave2 = (Date.now() / 400 + j * 9) % (TILE * 2);
+            ctx.fillStyle = j % 2 === 0 ? '#33cc88' : '#66eeaa';
+            ctx.globalAlpha = 0.4;
+            ctx.beginPath();
+            ctx.ellipse(x + wave2 / 2, y + TILE * (0.3 + j * 0.2), TILE * 0.25, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          break;
+        case T.HEART:
+          ctx.fillStyle = '#3a3a5c';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = '#333355';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, TILE, TILE);
+          drawHeartIcon(x + TILE/2, y + TILE/2, 12, '#ff4081');
+          break;
+        case T.LOVE:
+          ctx.fillStyle = '#3a3a5c';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = '#333355';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, TILE, TILE);
+          ctx.shadowColor = '#ff69b4';
+          ctx.shadowBlur = 18;
+          ctx.font = '22px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#ff4d6d';
+          ctx.fillText('💌', x + TILE/2, y + TILE/2);
+          ctx.shadowBlur = 0;
+          break;
+        case T.FEXIT: {
+          ctx.fillStyle = '#3a3a5c';
+          ctx.fillRect(x, y, TILE, TILE);
+          var glow = Math.sin(Date.now() / 400) * 0.3 + 0.7;
+          ctx.fillStyle = 'rgba(255, 107, 53, ' + (glow * 0.3) + ')';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.fillStyle = '#ff6b35';
+          ctx.font = '20px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('🔥', x + TILE/2, y + TILE/2);
+          break;
+        }
+        case T.WEXIT: {
+          ctx.fillStyle = '#3a3a5c';
+          ctx.fillRect(x, y, TILE, TILE);
+          var glow2 = Math.sin(Date.now() / 400 + 1) * 0.3 + 0.7;
+          ctx.fillStyle = 'rgba(78, 205, 196, ' + (glow2 * 0.3) + ')';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.fillStyle = '#4ecdc4';
+          ctx.font = '20px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('💧', x + TILE/2, y + TILE/2);
+          break;
+        }
+        case T.GATE:
+          ctx.fillStyle = '#665533';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = '#887744';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          for (var k = 0; k < 4; k++) {
+            ctx.moveTo(x + TILE/4 + k * 2, y + 2);
+            ctx.lineTo(x + TILE/4 + k * 2, y + TILE - 2);
+          }
+          ctx.stroke();
+          break;
+        case T.HGATE:
+          ctx.fillStyle = '#992255';
+          ctx.fillRect(x, y, TILE, TILE);
+          ctx.strokeStyle = '#ff66aa';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (var hk = 0; hk < 4; hk++) {
+            ctx.moveTo(x + TILE/4 + hk*2, y + 2);
+            ctx.lineTo(x + TILE/4 + hk*2, y + TILE - 2);
+          }
+          ctx.stroke();
+          ctx.font = '18px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('🤝', x + TILE/2, y + TILE/2);
+          break;
+        case T.KGATE:
+          ctx.fillStyle = state.kissGateOpen ? '#ff4488' : '#661133';
+          ctx.fillRect(x, y, TILE, TILE);
+          if (state.kissGateOpen) {
+            ctx.shadowColor = '#ff69b4';
+            ctx.shadowBlur = 15;
+          }
+          ctx.strokeStyle = state.kissGateOpen ? '#ff88cc' : '#442233';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (var kk = 0; kk < 4; kk++) {
+            ctx.moveTo(x + TILE/4 + kk*2, y + 2);
+            ctx.lineTo(x + TILE/4 + kk*2, y + TILE - 2);
+          }
+          ctx.stroke();
+          ctx.font = '18px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('💋', x + TILE/2, y + TILE/2);
+          ctx.shadowBlur = 0;
+          break;
+        case T.FBEG:
+        case T.WBEG:
+          ctx.fillStyle = '#3a3a5c';
+          ctx.fillRect(x, y, TILE, TILE);
+          break;
+        default:
+          ctx.fillStyle = '#3a3a5c';
+          ctx.fillRect(x, y, TILE, TILE);
+      }
+    }
+  }
+}
+
+/**
+ * 绘制角色（圆形裁剪显示照片，无照片时 emoji 后备）
+ */
+function drawCharacter(x, y, who, dir) {
+  var px = x * TILE;
+  var py = y * TILE;
+  var pad = 2;
+  var size = TILE - pad * 2;
+
+  var img   = who === 'boy' ? state.boyImg : state.girlImg;
+  var emoji = who === 'boy' ? '👨' : '👩';
+  var isBoy = who === 'boy';
+
+  // 牵手光圈
+  if (state.holding) {
+    ctx.strokeStyle = '#ff69b4';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 4]);
+    ctx.strokeRect(px + pad - 2, py + pad - 2, size + 4, size + 4);
+    ctx.setLineDash([]);
+  }
+
+  // 属性底光
+  ctx.shadowColor = isBoy ? '#ff6b35' : '#4ecdc4';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = isBoy ? 'rgba(255,107,53,0.15)' : 'rgba(78,205,196,0.15)';
+  ctx.fillRect(px + pad, py + pad, size, size);
+  ctx.shadowBlur = 0;
+
+  if (img && img.complete && img.naturalWidth > 0) {
+    // ===== 有照片：圆形裁剪显示 =====
+    var imgRatio = img.naturalWidth / img.naturalHeight;
+    var sw, sh, sxOff, syOff;
+    if (imgRatio > 1) {
+      sh = img.naturalHeight;
+      sw = img.naturalHeight;
+      sxOff = (img.naturalWidth - sw) / 2;
+      syOff = 0;
+    } else {
+      sw = img.naturalWidth;
+      sh = img.naturalWidth;
+      sxOff = 0;
+      syOff = (img.naturalHeight - sh) / 2;
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(px + TILE/2, py + TILE/2, size/2 - 1, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img, sxOff, syOff, sw, sh, px + pad, py + pad, size, size);
+    ctx.restore();
+
+    ctx.strokeStyle = isBoy ? '#ff6b35' : '#4ecdc4';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(px + TILE/2, py + TILE/2, size/2 - 1, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // ===== 无照片：emoji 后备 =====
+    ctx.font = (size * 0.85) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(emoji, px + TILE/2, py + TILE/2 + 1);
+
+    	    ctx.font = '9px sans-serif';
+    ctx.fillStyle = isBoy ? '#ff6b35' : '#4ecdc4';
+    ctx.fillText(isBoy ? '男友' : '女友', px + TILE/2, py + TILE - 4);
+  }
+  // ★ 角色头顶悬浮昵称（从 COUPLE_CONFIG 读取）
+  var nick = isBoy ? COUPLE_CONFIG.boyNickname : COUPLE_CONFIG.girlNickname;
+  if (nick) {
+    ctx.save();
+    ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    var nickW = ctx.measureText(nick).width;
+    var nickX = px + TILE/2;
+    var nickY = py - 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(nickX - nickW/2 - 5, nickY - 16, nickW + 10, 18, 6);
+    ctx.fill();
+    ctx.fillStyle = isBoy ? '#ff6b35' : '#4ecdc4';
+    ctx.fillText(nick, nickX, nickY - 1);
+    ctx.restore();
+  }
+
+  // 牵手连线 + 中间爱心
+  if (state.holding) {
+    var bx = state.boy.x * TILE + TILE/2;
+    var by = state.boy.y * TILE + TILE/2;
+    var gx = state.girl.x * TILE + TILE/2;
+    var gy = state.girl.y * TILE + TILE/2;
+
+    ctx.strokeStyle = 'rgba(255, 105, 180, 0.6)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(gx, gy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    var mx = (bx + gx) / 2;
+    var my = (by + gy) / 2;
+    var pulse = Math.sin(Date.now() / 300) * 2 + 8;
+    drawHeartIcon(mx, my, pulse, '#ff69b4');
+  }
+}
+
+/** 绘制爱心粒子 */
+function drawParticles() {
+  for (var i = 0; i < state.hearts.length; i++) {
+    var h = state.hearts[i];
+    var maxL = h.maxLife || h.life + 1;
+    var alpha = h.life / maxL;
+    ctx.globalAlpha = alpha * 0.7;
+    drawHeartIcon(h.x, h.y, h.size * (0.5 + 0.5 * alpha), h.color || '#ff69b4');
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** 绘制背景浮动星星 */
+function drawBgStars() {
+  for (var i = 0; i < state.bgStars.length; i++) {
+    var s = state.bgStars[i];
+    s.y -= s.speed;
+    if (s.y < -5) { s.y = CANVAS_H + 5; s.x = Math.random() * CANVAS_W; }
+    var pulse = 0.5 + 0.5 * Math.sin(Date.now() / 1200 + s.phase);
+    ctx.fillStyle = 'rgba(255, 200, 240, ' + (s.alpha * pulse * 0.5) + ')';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+    ctx.fill();
+    if (s.size > 2.5) {
+      ctx.strokeStyle = 'rgba(255, 220, 250, ' + (s.alpha * pulse * 0.2) + ')';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(s.x - s.size * 2, s.y);
+      ctx.lineTo(s.x + s.size * 2, s.y);
+      ctx.moveTo(s.x, s.y - s.size * 2);
+      ctx.lineTo(s.x, s.y + s.size * 2);
+      ctx.stroke();
+    }
+  }
+}
+
+/** ★ 绘制撒花粒子 */
+function drawConfetti() {
+  for (var i = 0; i < state.confetti.length; i++) {
+    var cf = state.confetti[i];
+    var alpha = Math.min(1, cf.life / 30);
+    ctx.save();
+    ctx.translate(cf.x, cf.y);
+    ctx.rotate(cf.rot);
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.fillStyle = cf.color;
+    // 爱心或花瓣形状交替
+    if (i % 3 === 0) {
+      drawHeartIcon(0, 0, cf.size, cf.color);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(0, 0, cf.size * 0.5, cf.size * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** 牵手模式角标 */
+function drawHoldingIndicator() {
+  if (!state.holding) return;
+  ctx.fillStyle = 'rgba(255, 105, 180, 0.9)';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('🤝 牵手模式', 8, 8);
+}
+
+/** 死亡闪白 */
+function drawFlash() {
+  if (state.flash > 0) {
+    ctx.fillStyle = 'rgba(255,255,255,' + (state.flash / 15 * 0.6) + ')';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillStyle = '#ff1744';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💀', CANVAS_W/2, CANVAS_H/2);
+  }
+}
+
+/** 绘制亲吻大爱心覆盖层 */
+function drawKissOverlay() {
+  if (state.kissTimer <= 0) return;
+  var progress = state.kissTimer / 40;
+  var alpha = progress > 0.5 ? 1 : progress * 2;
+  var size = (1 - progress) * 80 + 20;
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.5;
+  ctx.shadowColor = '#ff1744';
+  ctx.shadowBlur = 40;
+  drawHeartIcon(CANVAS_W/2, CANVAS_H/2, size, '#ff1744');
+  ctx.restore();
+}
+
+/** 绘制情书/亲吻漂浮消息 */
+function drawLoveMessage() {
+  if (state.loveMessageTimer <= 0) return;
+  var alpha = Math.min(1, state.loveMessageTimer / 30);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(255, 105, 180, 0.12)';
+  ctx.fillRect(0, CANVAS_H - 46, CANVAS_W, 46);
+  ctx.fillStyle = '#ff69b4';
+  ctx.font = 'bold 15px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(state.loveMessage, CANVAS_W/2, CANVAS_H - 23);
+  ctx.restore();
+}
+
+/** 特殊日期氛围（粉色薄雾） */
+function drawSpecialDateEffect() {
+  if (!state.specialDate) return;
+  var pulse = Math.sin(Date.now() / 600) * 0.03 + 0.06;
+  ctx.fillStyle = 'rgba(255, 105, 180, ' + pulse + ')';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  // 角落爱心装饰
+  ctx.font = '16px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.globalAlpha = 0.3;
+  ctx.fillText('💖', CANVAS_W - 4, CANVAS_H - 4);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('💖', 4, 4);
+  ctx.globalAlpha = 1;
+}
+
+/** 绘制相机提示（两人相邻且合照已上传时显示） */
+function drawCameraHint() {
+  if (state.couplePhotoMode) return;
+  if (!coupleImg || !coupleImg.complete || coupleImg.naturalWidth === 0) return;
+  if (state.phase !== 'playing') return;
+  var dx = Math.abs(state.boy.x - state.girl.x);
+  var dy = Math.abs(state.boy.y - state.girl.y);
+  if (dx + dy > 2) return;
+  // 两人中间点
+  var mx = (state.boy.x + state.girl.x) / 2 * TILE + TILE / 2;
+  var my = (state.boy.y + state.girl.y) / 2 * TILE + TILE / 2 - 30;
+  var pulse = Math.sin(Date.now() / 300) * 0.25 + 0.75;
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  ctx.font = '28px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ff69b4';
+  ctx.shadowBlur = 20;
+  ctx.fillText('📸', mx, my);
+  ctx.font = '11px sans-serif';
+  ctx.fillStyle = '#ff69b4';
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = pulse * 0.8;
+  ctx.fillText('按 P 合照', mx, my + 24);
+  ctx.restore();
+}
+
+/** ★ 亲吻门提示：附近有 KGATE 时显示 💋 图标 */
+function drawKissGateHint() {
+  if (state.phase !== 'playing') return;
+  // 检查两人附近是否有 KGATE
+  function hasNearbyKGATE(px, py) {
+    for (var dr = -1; dr <= 1; dr++) {
+      for (var dc = -1; dc <= 1; dc++) {
+        if (Math.abs(dr) + Math.abs(dc) !== 1) continue;
+        var tx = px + dc, ty = py + dr;
+        if (tx >= 0 && tx < COLS && ty >= 0 && ty < ROWS &&
+            state.map[ty][tx] === T.KGATE && !state.kissGateOpen) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  if (!hasNearbyKGATE(state.boy.x, state.boy.y) && !hasNearbyKGATE(state.girl.x, state.girl.y)) return;
+  var mx = (state.boy.x + state.girl.x) / 2 * TILE + TILE / 2;
+  var my = (state.boy.y + state.girl.y) / 2 * TILE + TILE / 2 - 50;
+  var pulse = Math.sin(Date.now() / 300) * 0.25 + 0.75;
+  ctx.save();
+  ctx.globalAlpha = pulse;
+  ctx.font = '24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ff69b4';
+  ctx.shadowBlur = 20;
+  ctx.fillText('💋', mx, my);
+  ctx.font = '10px sans-serif';
+  ctx.fillStyle = '#ff69b4';
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = pulse * 0.8;
+  ctx.fillText('按 K 亲吻开门', mx, my + 18);
+  ctx.restore();
+}
+
+/** 绘制合照覆盖层 */
+function drawCouplePhotoOverlay() {
+  if (!state.couplePhotoMode) return;
+  if (!coupleImg || !coupleImg.complete || coupleImg.naturalWidth === 0) {
+    // 合照图片尚未加载完成时显示占位提示
+    var progress = state.couplePhotoTimer / 300;
+    var alpha = progress > 0.1 ? 1 : progress * 10;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.7;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ff69b4';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('📸 合照中... 💖', CANVAS_W/2, CANVAS_H/2);
+    ctx.restore();
+    return;
+  }
+  var progress = state.couplePhotoTimer / 300;
+  var alpha = progress > 0.1 ? 1 : progress * 10;
+  // 半透明背景
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.7;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  ctx.globalAlpha = alpha;
+  // 粉色边框
+  ctx.shadowColor = '#ff69b4';
+  ctx.shadowBlur = 30;
+  ctx.strokeStyle = '#ff69b4';
+  ctx.lineWidth = 4;
+  // 计算照片显示区域（居中，保留比例）
+  var imgW = coupleImg.naturalWidth;
+  var imgH = coupleImg.naturalHeight;
+  var maxW = CANVAS_W * 0.7;
+  var maxH = CANVAS_H * 0.6;
+  var scale = Math.min(maxW / imgW, maxH / imgH);
+  var drawW = imgW * scale;
+  var drawH = imgH * scale;
+  var drawX = (CANVAS_W - drawW) / 2;
+  var drawY = (CANVAS_H - drawH) / 2 - 10;
+  // 绘制照片
+  ctx.drawImage(coupleImg, drawX, drawY, drawW, drawH);
+  ctx.shadowBlur = 0;
+  ctx.strokeRect(drawX - 2, drawY - 2, drawW + 4, drawH + 4);
+  // 顶部文字
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  var titleAlpha = Math.min(1, progress * 5);
+  ctx.globalAlpha = alpha * titleAlpha;
+  ctx.fillText('💑 我们的合照 💑', CANVAS_W / 2, drawY - 10);
+  // 底部小字
+  ctx.font = '13px sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.globalAlpha = alpha * titleAlpha * 0.6;
+  ctx.fillText('❤️ 有你在身边，每一天都是情人节 ❤️', CANVAS_W / 2, drawY + drawH + 12);
+  ctx.restore();
+}
+
+/** 主渲染函数 */
+var _frameCount = 0;
+// ==================== 关卡选择界面 ====================
+// 关卡卡片布局常量（供绘制和点击检测共享）
+var LEVEL_CARDS = {
+  cols: 4,
+  cardW: 140,
+  cardH: 75,
+  gap: 16,
+  startX: 0, // 动态计算
+  startY: 195,
+  rowGap: 18,
+};
+LEVEL_CARDS.startX = (CANVAS_W - (LEVEL_CARDS.cols * LEVEL_CARDS.cardW + (LEVEL_CARDS.cols - 1) * LEVEL_CARDS.gap)) / 2;
+
+/** 获取关卡卡片在画布上的位置 */
+function getLevelCardRect(idx) {
+  var row = Math.floor(idx / LEVEL_CARDS.cols);
+  var col = idx % LEVEL_CARDS.cols;
+  var x, y;
+  if (idx < 8) {
+    // 前 2 行（4+4）
+    x = LEVEL_CARDS.startX + col * (LEVEL_CARDS.cardW + LEVEL_CARDS.gap);
+    y = LEVEL_CARDS.startY + row * (LEVEL_CARDS.cardH + LEVEL_CARDS.rowGap);
+  } else {
+    // 第 3 行（2 个居中）
+    var row3Count = levels.length - 8;
+    var row3Width = row3Count * LEVEL_CARDS.cardW + (row3Count - 1) * LEVEL_CARDS.gap;
+    x = (CANVAS_W - row3Width) / 2 + col * (LEVEL_CARDS.cardW + LEVEL_CARDS.gap);
+    y = LEVEL_CARDS.startY + 2 * (LEVEL_CARDS.cardH + LEVEL_CARDS.rowGap);
+  }
+  return { x: x, y: y, w: LEVEL_CARDS.cardW, h: LEVEL_CARDS.cardH };
+}
+
+/** 绘制关卡选择界面 */
+function drawLevelSelect() {
+  // 背景
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // ★ 联机：加入方等待主机选关
+  if (ONLINE.isJoiner && ONLINE.connected) {
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💑 等待主机选择关卡...', CANVAS_W / 2, CANVAS_H / 2 - 20);
+    ctx.font = '16px sans-serif';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('TA 选择的关卡会自动加载', CANVAS_W / 2, CANVAS_H / 2 + 30);
+    return;
+  }
+
+  // 装饰边框
+  ctx.strokeStyle = 'rgba(233,69,96,0.2)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(8, 8, CANVAS_W - 16, CANVAS_H - 16);
+
+  // 标题
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('💖 选择关卡 💖', CANVAS_W / 2, 50);
+
+  // 副标题
+  ctx.font = '14px sans-serif';
+  ctx.fillStyle = '#aaa';
+  ctx.fillText('点击已解锁的关卡开始游戏', CANVAS_W / 2, 90);
+
+  // 进度信息
+  ctx.font = '13px sans-serif';
+  ctx.fillStyle = '#888';
+  ctx.fillText('已解锁 ' + (state.unlockedUpTo + 1) + ' / ' + levels.length + ' 关', CANVAS_W / 2, 120);
+
+  // 绘制每个关卡卡片
+  for (var i = 0; i < levels.length; i++) {
+    var lv = levels[i];
+    var r = getLevelCardRect(i);
+    var unlocked = i <= state.unlockedUpTo;
+    var cleared = i < state.unlockedUpTo;
+
+    // 卡片背景
+    var rx = r.x, ry = r.y, rw = r.w, rh = r.h;
+    ctx.save();
+
+    // 圆角矩形
+    var radius = 10;
+    ctx.beginPath();
+    ctx.moveTo(rx + radius, ry);
+    ctx.lineTo(rx + rw - radius, ry);
+    ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + radius);
+    ctx.lineTo(rx + rw, ry + rh - radius);
+    ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - radius, ry + rh);
+    ctx.lineTo(rx + radius, ry + rh);
+    ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - radius);
+    ctx.lineTo(rx, ry + radius);
+    ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
+    ctx.closePath();
+
+    if (unlocked) {
+      // 已解锁：粉橙渐变
+      var grad = ctx.createLinearGradient(rx, ry, rx, ry + rh);
+      if (cleared) {
+        grad.addColorStop(0, '#2a5a3a');
+        grad.addColorStop(1, '#1a3a2a');
+      } else {
+        grad.addColorStop(0, '#e94560');
+        grad.addColorStop(1, '#c23152');
+      }
+      ctx.fillStyle = grad;
+    } else {
+      // 未解锁：灰色
+      ctx.fillStyle = '#333355';
+    }
+    ctx.fill();
+
+    // 边框
+    ctx.strokeStyle = unlocked ? (cleared ? '#44aa66' : '#ff6b81') : '#444466';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // 关卡编号
+    ctx.fillStyle = unlocked ? '#fff' : '#666688';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('' + (i + 1), rx + 10, ry + 8);
+
+    if (cleared) {
+      // 已通关标记
+      ctx.font = '16px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      ctx.fillText('✅', rx + rw - 8, ry + 8);
+    }
+
+    // 关卡名
+    ctx.fillStyle = unlocked ? (cleared ? '#aaddaa' : '#ffd') : '#555577';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(lv.name, rx + rw / 2, ry + rh - 6);
+
+    // 未解锁的锁图标
+    if (!unlocked) {
+      ctx.font = '24px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🔒', rx + rw / 2, ry + rh / 2 + 2);
+    }
+
+    // 选中高亮：鼠标悬停效果
+    if (unlocked && state._hoveredLevel === i) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // 底部提示
+  ctx.fillStyle = '#666';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('🔥 WASD 控制男友 · 💧 方向键 控制女友 · 🤝 空格牵手 · 💋 K 亲吻 · 📸 P 合照', CANVAS_W / 2, CANVAS_H - 12);
+}
+
+/** 通关时在 Canvas 上绘制全屏浪漫情书效果 */
+function drawWinEffect() {
+  if (state.phase !== 'win') return;
+  var t = Date.now() / 1000;
+  var pulse = Math.sin(t * 2) * 0.15 + 0.85;
+
+  ctx.save();
+
+  // ===== 粉色渐变背景 =====
+  var grad = ctx.createRadialGradient(400, 300, 50, 400, 300, 450);
+  grad.addColorStop(0, 'rgba(233, 69, 96, 0.25)');
+  grad.addColorStop(0.5, 'rgba(180, 40, 80, 0.15)');
+  grad.addColorStop(1, 'rgba(20, 10, 30, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // ===== 装饰边框（脉冲爱心光晕） =====
+  ctx.strokeStyle = 'rgba(255, 105, 180, ' + (pulse * 0.3) + ')';
+  ctx.lineWidth = 3;
+  ctx.shadowColor = '#ff69b4';
+  ctx.shadowBlur = 20 * pulse;
+  ctx.strokeRect(12, 12, CANVAS_W - 24, CANVAS_H - 24);
+  // 四角小爱心
+  ctx.shadowBlur = 0;
+  ctx.font = '20px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = pulse;
+  ctx.fillText('💖', 24, 24);
+  ctx.fillText('💖', CANVAS_W - 24, 24);
+  ctx.fillText('💖', 24, CANVAS_H - 24);
+  ctx.fillText('💖', CANVAS_W - 24, CANVAS_H - 24);
+  ctx.globalAlpha = 1;
+
+  // ===== 标题 =====
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('💑 恭喜通关！你们是天生一对 💑', CANVAS_W / 2, 60);
+
+  // ===== 副标题 =====
+  ctx.fillStyle = 'rgba(255, 200, 200, ' + (pulse * 0.7 + 0.3) + ')';
+  ctx.font = '16px sans-serif';
+  ctx.fillText('❤️ 永恒之约 · 十关全部完成 ❤️', CANVAS_W / 2, 100);
+
+  // ===== 中间装饰大爱心（脉冲） =====
+  var heartSize = 40 + Math.sin(t * 1.5) * 8;
+  drawHeartIcon(CANVAS_W / 2, 195, heartSize, 'rgba(255, 50, 100, ' + (pulse * 0.4) + ')');
+
+  // ===== 漂浮爱心粒子（专门为 win 添加的强化粒子） =====
+  // 渲染额外的 win 粒子：从底部不断上升的爱心
+  for (var wi = 0; wi < 8; wi++) {
+    var wx = ((wi * 97 + t * 30) % CANVAS_W);
+    var wy = ((wi * 137 + t * 80 * (0.5 + (wi % 3) * 0.3)) % CANVAS_H);
+    var ws = 8 + (wi % 3) * 6;
+    var wa = 0.2 + Math.sin(t + wi) * 0.1;
+    ctx.globalAlpha = wa;
+    drawHeartIcon(wx, wy, ws, '#ff69b4');
+  }
+  ctx.globalAlpha = 1;
+
+  // ===== 情书文字展示（如果已保存） =====
+  if (state.loveLetterText) {
+    // 半透明信纸背景
+    var letterX = 120, letterY = 230, letterW = 560, letterH = 280;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255, 240, 240, 0.1)';
+    ctx.strokeStyle = 'rgba(255, 105, 180, ' + (pulse * 0.4) + ')';
+    ctx.lineWidth = 1.5;
+    // 圆角信纸
+    var lr = 12;
+    ctx.beginPath();
+    ctx.moveTo(letterX + lr, letterY);
+    ctx.lineTo(letterX + letterW - lr, letterY);
+    ctx.quadraticCurveTo(letterX + letterW, letterY, letterX + letterW, letterY + lr);
+    ctx.lineTo(letterX + letterW, letterY + letterH - lr);
+    ctx.quadraticCurveTo(letterX + letterW, letterY + letterH, letterX + letterW - lr, letterY + letterH);
+    ctx.lineTo(letterX + lr, letterY + letterH);
+    ctx.quadraticCurveTo(letterX, letterY + letterH, letterX, letterY + letterH - lr);
+    ctx.lineTo(letterX, letterY + lr);
+    ctx.quadraticCurveTo(letterX, letterY, letterX + lr, letterY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 信纸顶部装饰爱心
+    drawHeartIcon(letterX + letterW / 2, letterY + 18, 14, '#ff69b4');
+
+    // 情书正文
+    ctx.fillStyle = 'rgba(255, 230, 240, ' + (pulse * 0.6 + 0.4) + ')';
+    ctx.font = '15px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    wrapText(ctx, state.loveLetterText, CANVAS_W / 2, letterY + 42, letterW - 40, 24);
+  } else {
+    // 未写情书时提示
+    ctx.fillStyle = 'rgba(255, 200, 200, 0.7)';
+    ctx.font = '18px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    var hintPulse = Math.sin(t * 1.2) * 0.2 + 0.8;
+    ctx.globalAlpha = hintPulse;
+    ctx.fillText('💌 在下方写下你想对 TA 说的告白情书吧 💌', CANVAS_W / 2, 340);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+}
+
+/** 辅助：自动换行文本 */
+function wrapText(context, text, x, y, maxWidth, lineHeight) {
+  var lines = text.split('\n');
+  var lineY = y;
+  for (var li = 0; li < lines.length && lineY < y + 100; li++) {
+    var line = lines[li];
+    if (context.measureText(line).width <= maxWidth) {
+      context.fillText(line, x, lineY);
+      lineY += lineHeight;
+    } else {
+      var words = line.split('');
+      var curLine = '';
+      for (var ci = 0; ci < words.length; ci++) {
+        var test = curLine + words[ci];
+        if (context.measureText(test).width > maxWidth && curLine) {
+          context.fillText(curLine, x, lineY);
+          lineY += lineHeight;
+          curLine = words[ci];
+        } else {
+          curLine = test;
+        }
+      }
+      if (curLine) {
+        context.fillText(curLine, x, lineY);
+        lineY += lineHeight;
+      }
+    }
+  }
+}
+
+function render() {
+  _frameCount++;
+  ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
+  // 关卡选择界面
+  if (state.phase === 'menu') {
+    drawLevelSelect();
+    document.getElementById('overlay').classList.remove('show');
+    return;
+  }
+
+  drawBgStars();
+  drawMap();
+  drawSpecialDateEffect();
+  drawParticles();
+  drawConfetti();
+
+  // 先画女友再画男友（让男友在顶层，方便视觉）
+  drawCharacter(state.girl.x, state.girl.y, 'girl', state.girl.dir);
+  drawCharacter(state.boy.x, state.boy.y, 'boy', state.boy.dir);
+
+  drawHoldingIndicator();
+  drawKissOverlay();
+  drawLoveMessage();
+  drawCameraHint();
+  drawKissGateHint();
+  drawCouplePhotoOverlay();
+  drawFlash();
+  drawWinEffect();
+
+  // debug: 帧计数器
+  ctx.fillStyle = '#ffff00';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('帧:' + _frameCount, 4, 4);
+}
+
+// ================================================================
+//  游戏主循环
+// ================================================================
+
+/** 自适应桌面尺寸：计算最佳显示大小并保持 4:3 比例 */
+function resizeCanvas() {
+  var canvas = document.getElementById('gameCanvas');
+  if (!canvas) return;
+  var wrap = document.getElementById('canvasWrap');
+  if (!wrap) return;
+  // 获取 canvasWrap 可用尺寸
+  var wrapW = wrap.clientWidth;
+  var wrapH = wrap.clientHeight;
+  if (wrapW < 100 || wrapH < 100) return;
+
+  var ratio = CANVAS_W / CANVAS_H; // 4/3
+  var w, h;
+  if (wrapW / wrapH > ratio) {
+    // wrap 比 4:3 宽 → 高度限制
+    h = wrapH;
+    w = h * ratio;
+  } else {
+    // wrap 比 4:3 高 → 宽度限制
+    w = wrapW;
+    h = w / ratio;
+  }
+  canvas.style.width = Math.floor(w) + 'px';
+  canvas.style.height = Math.floor(h) + 'px';
+}
+
+function gameLoop() {
+  update();
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+// ================================================================
+//  启动！
+// ================================================================
+
+// 1. 等待 IndexedDB 就绪 → 迁移 localStorage 旧数据 → 加载已存储的资源
+DB.ready
+  .then(function () { return DB.migrate(); })
+  .then(function () {
+    return Promise.all([
+      loadPhoto('boy'),
+      loadPhoto('girl'),
+      loadMusic(),
+      loadCouplePhoto()
+    ]);
+  })
+  .then(function () {
+    return loadLevelProgress();
+  })
+  .then(function () {
+    return loadLoveLetter();
+  })
+  .then(function () {
+    // ★ 初始化背景星星
+    state.bgStars = [];
+    for (var si = 0; si < 35; si++) {
+      state.bgStars.push({
+        x: Math.random() * CANVAS_W,
+        y: Math.random() * CANVAS_H,
+        size: 1.5 + Math.random() * 2.5,
+        speed: 0.15 + Math.random() * 0.35,
+        alpha: 0.3 + Math.random() * 0.7,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+    // ★ 显示520开场弹窗（首次加载时）
+    showWelcomeModal();
+  })
+  .then(function () {
+    // 全部加载完成后显示关卡选择
+    resizeCanvas();
+    showLevelSelect();
+    gameLoop();
+  });
+
+// 窗口大小变化时重新适配
+window.addEventListener('resize', function () {
+  resizeCanvas();
+});
+
+// 1.5 检测特殊日期（情人节/520/圣诞节 → 浪漫模式）
+(function checkSpecialDate() {
+  var now = new Date();
+  var m = now.getMonth() + 1;
+  var d = now.getDate();
+  if ((m === 2 && d === 14) || (m === 5 && (d === 20 || d === 21)) ||
+      (m === 12 && d === 25)) {
+    state.specialDate = true;
+    setStatus('💖 今日特殊日期！浪漫氛围全开 ~');
+  }
+})();
+
+// ★ 显示520开场专属弹窗
+function showWelcomeModal() {
+  try { if (localStorage.getItem('welcome_shown')) return; } catch(e) {}
+  document.getElementById('welcomeTitle').textContent = COUPLE_CONFIG.openingTitle;
+  document.getElementById('welcomeNames').textContent = COUPLE_CONFIG.boyNickname + ' & ' + COUPLE_CONFIG.girlNickname;
+  document.getElementById('welcomeSub').innerHTML = '这是为 <span class="highlight">' + COUPLE_CONFIG.boyNickname + ' & ' + COUPLE_CONFIG.girlNickname + '</span> 定制的专属世界';
+  document.getElementById('welcomeTagline').textContent = COUPLE_CONFIG.openingTagline;
+  var modal = document.getElementById('welcomeModal');
+  modal.classList.add('show');
+  document.getElementById('welcomeBtn').addEventListener('click', function onClick() {
+    modal.classList.remove('show');
+    try { localStorage.setItem('welcome_shown', '1'); } catch(e) {}
+    document.getElementById('welcomeBtn').removeEventListener('click', onClick);
+    if (bgAudio && bgMusicLoaded && !bgMusicPlaying) {
+      bgAudio.play().catch(function(){});
+      bgMusicPlaying = true;
+      updateMusicUI();
+    }
+  });
+}
+
+// ★ 角色名称设置
+(function initNameUI() {
+  var boyInput = document.getElementById('boyNameInput');
+  var girlInput = document.getElementById('girlNameInput');
+  var saveBtn = document.getElementById('saveNameBtn');
+  if (!saveBtn) return;
+  boyInput.value = COUPLE_CONFIG.boyNickname;
+  girlInput.value = COUPLE_CONFIG.girlNickname;
+  function saveNames() {
+    var b = boyInput.value.trim() || '男';
+    var g = girlInput.value.trim() || '女';
+    boyInput.value = b;
+    girlInput.value = g;
+    COUPLE_CONFIG.boyNickname = b;
+    COUPLE_CONFIG.girlNickname = g;
+    try {
+      localStorage.setItem('couple_boyNick', b);
+      localStorage.setItem('couple_girlNick', g);
+    } catch(e) {}
+    document.getElementById('welcomeNames').textContent = b + ' & ' + g;
+    document.getElementById('welcomeSub').innerHTML = '这是为 <span class="highlight">' + b + ' & ' + g + '</span> 定制的专属世界';
+    setStatus('✅ 昵称已保存：' + b + ' & ' + g);
+  }
+  saveBtn.addEventListener('click', saveNames);
+  boyInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') saveNames(); });
+  girlInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') saveNames(); });
+})();
+
+// 1.6 触控按钮事件绑定
+(function initTouchControls() {
+  var btns = document.querySelectorAll('.touch-btn');
+  var keyMap = {
+    w: 'w', a: 'a', s: 's', d: 'd',
+    up: 'up', left: 'left', down: 'down', right: 'right',
+  };
+
+  function onStart(btn, e) {
+    e.preventDefault();
+    var key = btn.getAttribute('data-key');
+    if (key && keyMap[key] !== undefined) {
+      touchKeys[keyMap[key]] = true;
+      btn.classList.add('active');
+      // ★ 联机：Joiner 触摸按键即时发送
+      if (ONLINE.isJoiner && ONLINE.connected) ONLINE.sendInput();
+    }
+    // 亲吻按钮
+    if (btn.id === 'touchKiss' && state.phase === 'playing' && state.kissTimer <= 0) {
+      var dx = Math.abs(state.boy.x - state.girl.x);
+      var dy = Math.abs(state.boy.y - state.girl.y);
+      if (dx + dy <= 2) doKiss();
+      else setStatus('💋 两人需要靠近才能亲吻哦 ~');
+    }
+    // 合照按钮
+    if (btn.id === 'touchPhoto') {
+      triggerCouplePhoto();
+    }
+  }
+  // data-key 到 keys Set 实际键名的映射
+  var keyToSet = {
+    w: 'w', a: 'a', s: 's', d: 'd',
+    up: 'ArrowUp', left: 'ArrowLeft', down: 'ArrowDown', right: 'ArrowRight',
+  };
+  function onEnd(btn, e) {
+    e.preventDefault();
+    var key = btn.getAttribute('data-key');
+    if (key && keyMap[key] !== undefined) {
+      touchKeys[keyMap[key]] = false;
+      keys.delete(keyToSet[key] || key);
+      btn.classList.remove('active');
+      // ★ 联机：Joiner 触摸按键即时发送
+      if (ONLINE.isJoiner && ONLINE.connected) ONLINE.sendInput();
+    }
+  }
+
+  // 批量绑定 touch 和 mouse 事件
+  for (var i = 0; i < btns.length; i++) {
+    var btn = btns[i];
+    (function(b) {
+      b.addEventListener('touchstart', function(e) { onStart(b, e); }, { passive: false });
+      b.addEventListener('touchend',  function(e) { onEnd(b, e); }, { passive: false });
+      b.addEventListener('touchcancel', function(e) { onEnd(b, e); }, { passive: false });
+      b.addEventListener('mousedown', function(e) { onStart(b, e); });
+      b.addEventListener('mouseup',   function(e) { onEnd(b, e); });
+      b.addEventListener('mouseleave', function(e) { onEnd(b, e); });
+    })(btn);
+  }
+})();
+
+// ★ 联机面板 UI 事件绑定（简化版：双方输入相同房间号）
+(function initOnlineUI() {
+  var panel = document.getElementById('onlinePanel');
+  var toggleBtn = document.getElementById('onlineToggleBtn');
+  var closeBtn = document.getElementById('onlineCloseBtn');
+  var connectBtn = document.getElementById('onlineConnectBtn');
+  var cancelBtn = document.getElementById('onlineCancelBtn');
+  var disconnectBtn = document.getElementById('onlineDisconnectBtn');
+  var codeInput = document.getElementById('onlineCodeInput');
+
+  if (!toggleBtn) return;
+
+  function onConnect() { ONLINE.connect(codeInput.value); }
+
+  toggleBtn.addEventListener('click', function() { panel.classList.add('show'); if (codeInput) setTimeout(function() { codeInput.focus(); }, 100); });
+  toggleBtn.addEventListener('touchend', function(e) { e.preventDefault(); panel.classList.add('show'); });
+  closeBtn.addEventListener('click', function() { panel.classList.remove('show'); });
+  closeBtn.addEventListener('touchend', function(e) { e.preventDefault(); panel.classList.remove('show'); });
+  connectBtn.addEventListener('click', onConnect);
+  connectBtn.addEventListener('touchend', function(e) { e.preventDefault(); onConnect(); });
+  codeInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') onConnect(); });
+  cancelBtn.addEventListener('click', function() { ONLINE.leaveRoom(); });
+  cancelBtn.addEventListener('touchend', function(e) { e.preventDefault(); ONLINE.leaveRoom(); });
+  disconnectBtn.addEventListener('click', function() { ONLINE.disconnect(); });
+  disconnectBtn.addEventListener('touchend', function(e) { e.preventDefault(); ONLINE.disconnect(); });
+  // 点击面板背景关闭
+  panel.addEventListener('click', function(e) { if (e.target === panel) panel.classList.remove('show'); });
+})();
+
+// ★ Joiner：定期发送方向键输入（~30fps）外加按键即时触发
+var _joinerInputTimer = setInterval(function() {
+  if (ONLINE.isJoiner && ONLINE.connected) ONLINE.sendInput();
+}, 30);
+// Joiner 按键即时发送
+document.addEventListener('keydown', function(e) {
+  if (ONLINE.isJoiner && ONLINE.connected && (e.key.startsWith('Arrow'))) {
+    ONLINE.sendInput();
+  }
+});
+document.addEventListener('keyup', function(e) {
+  if (ONLINE.isJoiner && ONLINE.connected && (e.key.startsWith('Arrow'))) {
+    ONLINE.sendInput();
+  }
+});
+
+// restartGame() + gameLoop() 已在 DB.ready 完成后执行
+
+console.log('❤️ 森林冰火人 - 情侣双人版已启动！');
+console.log('📷 点击下方按钮上传照片，角色立刻变脸！');
+console.log('📖 添加关卡：在 levels 数组末尾追加新地图即可。');
+
+</script>
+</body>
+</html>
